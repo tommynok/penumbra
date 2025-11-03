@@ -91,13 +91,11 @@ impl DAProtocol for XFlash {
             return Err(Error::XFlash(xflash_err));
         }
 
-        // Addr (LE) | Padding | Length (LE) | Padding
+        // Addr (LE) | Length (LE)
         // 00000040000000002c83050000000000 -> addr=0x4000000, len=0x0005832c
         let mut param = Vec::new();
-        param.extend_from_slice(&addr.to_le_bytes());
-        param.extend_from_slice(&[0, 0, 0, 0]);
-        param.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        param.extend_from_slice(&[0, 0, 0, 0]);
+        param.extend_from_slice(&(addr as u64).to_le_bytes());
+        param.extend_from_slice(&(data.len() as u64).to_le_bytes());
 
         // TODO: Use send_data instead of reconstructing header manually
         let mut hdr = [0u8; 12];
