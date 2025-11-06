@@ -25,8 +25,13 @@ const DA_EXT: &[u8] = include_bytes!("../../../payloads/da_x.bin");
 pub async fn boot_extensions(xflash: &mut XFlash) -> Result<bool> {
     debug!("Trying booting XFlash extensions...");
 
-    let ext_data = prepare_extensions(xflash)
-        .ok_or_else(|| Error::proto("Failed to prepare DA extensions"))?;
+    let ext_data = match prepare_extensions(xflash) {
+        Some(data) => data,
+        None => {
+            debug!("Failed to prepare DA extensions");
+            return Ok(false);
+        }
+    };
 
     let ext_addr = 0x68000000;
     let ext_size = ext_data.len() as u32;
