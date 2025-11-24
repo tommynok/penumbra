@@ -241,6 +241,18 @@ impl DAProtocol for XFlash {
         self.get_or_detect_storage().await
     }
 
+    async fn set_seccfg_lock_state(&mut self, locked: LockFlag) -> Option<Vec<u8>> {
+        let seccfg = parse_seccfg(self).await;
+        if seccfg.is_none() {
+            error!("[Penumbra] Failed to parse seccfg, cannot set lock state");
+            return None;
+        }
+
+        let mut seccfg = seccfg.unwrap();
+        seccfg.set_lock_state(locked);
+        write_seccfg(self, &mut seccfg).await
+    }
+
     fn patch_da(&mut self) -> Option<DA> {
         patch::patch_da(self).ok()
     }

@@ -9,6 +9,7 @@ mod da_protocol;
 mod exts;
 pub mod flash;
 mod patch;
+mod sec;
 mod storage;
 mod xflash;
 pub use cmds::*;

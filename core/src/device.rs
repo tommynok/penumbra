@@ -11,10 +11,9 @@ use tokio::time::timeout;
 
 use crate::connection::Connection;
 use crate::connection::port::{ConnectionType, MTKPort};
-use crate::core::crypto::config::{CryptoConfig, CryptoIO};
-use crate::core::crypto::sej::SEJCrypto;
+use crate::core::crypto::config::CryptoIO;
 use crate::core::devinfo::{DevInfoData, DeviceInfo};
-use crate::core::seccfg::{LockFlag, SecCfgV4};
+use crate::core::seccfg::LockFlag;
 use crate::core::storage::{Partition, PartitionKind, parse_gpt};
 use crate::da::{DAFile, DAProtocol, DAType, XFlash};
 use crate::error::{Error, Result};
@@ -499,32 +498,8 @@ impl Device {
     pub async fn set_seccfg_lock_state(&mut self, lock_state: LockFlag) -> Option<Vec<u8>> {
         // Ensure DA mode first; this will populate partitions and storage
         self.ensure_da_mode().await.ok()?;
-
-        let mut progress = |_read: usize, _total: usize| {};
-
-        // TODO: Dynamically determine SEJ base (maybe through preloader)
-        let sej_base = 0x1000A000;
-
-        let mut seccfg_raw = Vec::new();
-        {
-            let mut cursor = Cursor::new(&mut seccfg_raw);
-            self.read_partition("seccfg", &mut progress, &mut cursor).await.ok()?;
-        }
-
-        let new_seccfg = {
-            let mut crypto_config = CryptoConfig::new(sej_base, self);
-            let mut sej = SEJCrypto::new(&mut crypto_config);
-            let mut seccfg = SecCfgV4::parse(&seccfg_raw, &mut sej).await.ok()?;
-
-            seccfg.create(&mut sej, lock_state).await
-        };
-
-        {
-            let mut reader = Cursor::new(&new_seccfg);
-            self.write_partition("seccfg", &mut reader, &mut progress).await.ok()?;
-        }
-
-        Some(new_seccfg)
+        let protocol = self.protocol.as_mut().unwrap();
+        protocol.set_seccfg_lock_state(lock_state).await
     }
 }
 

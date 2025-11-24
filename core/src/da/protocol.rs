@@ -8,6 +8,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::connection::Connection;
 use crate::connection::port::ConnectionType;
+use crate::core::seccfg::LockFlag;
 use crate::core::storage::{PartitionKind, Storage, StorageType};
 use crate::da::{DA, DAEntryRegion};
 use crate::error::Result;
@@ -61,6 +62,9 @@ pub trait DAProtocol: Send {
 
     async fn get_storage(&mut self) -> Option<Arc<dyn Storage>>;
     async fn get_storage_type(&mut self) -> StorageType;
+
+    // Sec
+    async fn set_seccfg_lock_state(&mut self, locked: LockFlag) -> Option<Vec<u8>>;
 
     // DA Patching utils. These *must* be protocol specific, as different protocols
     // have different DA implementations
