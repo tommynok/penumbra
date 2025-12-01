@@ -15,38 +15,55 @@ Penumbra can be used both as a crate for interacting directly with a device with
 For using the crate, use the device API:
 
 ```rs
-use env_logger::Builder;
-use penumbra::Device;
 use std::fs::File;
-use std::io::Result;
+
+use anyhow::Result;
+use env_logger::Builder;
+use penumbra::{Device, DeviceBuilder, find_mtk_port};
+use tokio::io::{AsyncWriteExt, BufWriter};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     env_logger::init();
     let da_path = std::path::Path::new("../DA_penangf.bin");
     let da_data = std::fs::read(da_path).expect("Failed to read DA file");
 
     println!("Searching for MTK port...");
-    let mtk_port: SerialPortInfo;
-    loop {
-        let ports = find_mtk_port();
-        if ports.len() > 0 {
-            mtk_port = ports[0].clone();
-            break;
+    let mtk_port = loop {
+        if let Some(port) = find_mtk_port().await {
+            break port;
         }
     }
-    println!("Found MTK port: {}", mtk_port.port_name);
-    let mut device = Device::init(mtk_port, da_data).expect("Failed to initialize device").await;
+
+    println!("Found MTK port: {}", mtk_port.get_port_name());
+    
+    let mut device = DeviceBuilder::default()
+        .with_mtk_port(mtk_port)
+        .with_da_data(da_data)
+        .build()?
+    
+    // Init the device (Handshake and populate dev info)
+    dev.init().await?;
+    
+    let tgt_cfg = dev.dev_info.target_config().await;
+    println!("SBC: {}", (tgt_cfg & 0x1) != 0);
+    
+    // This will enter DA mode. Seccfg unlock only works if the device can load extensions / is vulnerable
     device.set_seccfg_lock_state(LockFlag::Unlock).await
 
     // Ignore progress for now
     let mut progress = |_read: usize, _total: usize| {};
 
-    let mut lk_a_data = device.read_partition("lk_a", &mut progress).await;
+    let file = File::create("lk_a.bin").await?;
+    let mut writer = BufWriter::new(file);
 
+    let mut lk_a_data = device.read_partition("lk_a", &mut progress, &mut writer).await;
+    
+    writer.flush().await?;
+    
+    Ok(())
 }
 ```
-
 
 For using the TUI, first run the executable, then:
 * Navigate using the UP and DOWN arrows
@@ -59,9 +76,9 @@ For using the TUI, first run the executable, then:
 
 Penumbra is still in early development, thus it can break auite easily.
 If so, you can open an issue attaching debug logs.<br>
-To get debug logs, set the environment variabile `RUST_LOG=debug`. A file called `app.log` will be created in thr current directory.
+To get debug logs, run `antumbra` with the `-v` flag. A file called `antumbra.log` will be created in the current directory.
 
-Note: Penumbra currently only supports MT6768 devices with eMMC (so no UFS for now). Issues reporting incompatibility with other chipset will be ignored until broader support is added.
+Note: Penumbra currently only supports V5 (XFlash) devices. Issues reporting incompatibility with other chipset will be ignored until broader support is added.
 
 ## Contributing
 
@@ -82,7 +99,7 @@ On any other distribution, you'll need to install the following dependencies:
 
 Core:
 * [x] Add UFS support
-* [ ] Dynamically determine SEJ base (for more chipsets support)
+* [x] Dynamically determine SEJ base (for more chipsets support)
 * [x] Build DA extensions from source
 * [ ] Limit extensions only commands when exts are not added to avoid timeouts
 * [x] Add a way to restore state
@@ -90,8 +107,8 @@ Core:
 * [ ] Add support for BROM mode (and setup DRAM)
 * [ ] Add support for DA SLA and preloader auth
 * [x] Add target config to Device Info (SBC, DAA and SLA)
-* [ ] Improve support for preloader/brom only connection (for testing purposes with just preloader commands)
-* [ ] Improve DA parsing and add DA patching
+* [x] Improve support for preloader/brom only connection (for testing purposes with just preloader commands)
+* [x] Improve DA parsing and add DA patching
 
 TUI:
 * [ ] Add partition read and write (Add partition list next to the action list)
