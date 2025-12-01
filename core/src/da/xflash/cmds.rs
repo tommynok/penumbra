@@ -36,6 +36,7 @@ pub enum Cmd {
     WriteEfuse = 0x01000E,
     ReadEfuse = 0x01000F,
     NandBmtRemark = 0x010010,
+    SramWriteTest = 0x010011,
 
     SetupEnvironment = 0x010100,
     SetupHwInitParams = 0x010101,
