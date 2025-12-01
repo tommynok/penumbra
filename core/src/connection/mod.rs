@@ -63,7 +63,7 @@ impl Connection {
         debug!("Jump to DA at 0x{:08X}", address);
 
         self.echo(&[Command::JumpDa as u8], 1).await?;
-        self.echo(&address.to_le_bytes(), 4).await?;
+        self.echo(&address.to_be_bytes(), 4).await?;
 
         let mut status = [0u8; 2];
         self.port.read_exact(&mut status).await?;
