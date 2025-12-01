@@ -8,6 +8,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::connection::Connection;
 use crate::connection::port::ConnectionType;
+use crate::core::devinfo::DeviceInfo;
 use crate::core::seccfg::LockFlag;
 use crate::core::storage::{PartitionKind, Storage, StorageType};
 use crate::da::{DA, DAEntryRegion};
@@ -71,4 +72,7 @@ pub trait DAProtocol: Send {
     fn patch_da(&mut self) -> Option<DA>;
     fn patch_da1(&mut self) -> Option<DAEntryRegion>;
     fn patch_da2(&mut self) -> Option<DAEntryRegion>;
+
+    // DevInfo helpers
+    fn get_devinfo(&self) -> &DeviceInfo;
 }

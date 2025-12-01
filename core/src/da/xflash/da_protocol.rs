@@ -264,4 +264,8 @@ impl DAProtocol for XFlash {
     fn patch_da2(&mut self) -> Option<DAEntryRegion> {
         patch::patch_da2(self).ok()
     }
+
+    fn get_devinfo(&self) -> &DeviceInfo {
+        &self.dev_info
+    }
 }
