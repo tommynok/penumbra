@@ -88,6 +88,11 @@ impl DeviceInfo {
         self.inner().read().await.target_config
     }
 
+    pub async fn set_target_config(&self, cfg: u32) {
+        let mut write_guard = self.inner().write().await;
+        write_guard.target_config = cfg;
+    }
+
     pub async fn sbc_enabled(&self) -> bool {
         let target_config = self.inner().read().await.target_config;
         (target_config & 0x1) != 0
