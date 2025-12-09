@@ -164,6 +164,7 @@ where
         debug!("Written {}/{} bytes...", bytes_written, size);
     }
 
+    status_ok!(xflash);
     info!("Flash write completed, 0x{:X} bytes written.", bytes_written);
 
     Ok(())
@@ -216,6 +217,7 @@ where
         progress(bytes_written, size);
     }
 
+    status_ok!(xflash);
     debug!("Download completed, 0x{:X} bytes sent.", size);
 
     Ok(())
