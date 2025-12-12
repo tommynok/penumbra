@@ -74,11 +74,11 @@ For using the TUI, first run the executable, then:
 
 ### Debug logs
 
-Penumbra is still in early development, thus it can break auite easily.
+Penumbra is still in early development, thus it can break quite easily.
 If so, you can open an issue attaching debug logs.<br>
 To get debug logs, run `antumbra` with the `-v` flag. A file called `antumbra.log` will be created in the current directory.
 
-Note: Penumbra currently only supports V5 (XFlash) devices. Issues reporting incompatibility with other chipset will be ignored until broader support is added.
+Note: Penumbra currently supports both V5 (XFlash) and V6 (XML) devices. Issues reporting incompatibility with other chipset will be ignored until broader support is added.
 
 ## Contributing
 
