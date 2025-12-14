@@ -223,4 +223,48 @@ impl DA {
     pub fn get_da2(&self) -> Option<&DAEntryRegion> {
         if self.regions.len() >= 3 { Some(&self.regions[2]) } else { None }
     }
+
+    // TODO: Consider making this part of da.rs instead, as kamakiri requires it as well
+    pub fn find_da_hash_offset(&self) -> Option<usize> {
+        match self.da_type {
+            // V5 hashes are easily found 0x30 bytes before the "MMU MAP: VA" string in the DA1
+            // region. We can confirm the position of the hash as well in Ghidra: when looking
+            // at the boot_to function, we'll find something like DAT_0022DEA4.
+            // Because of its odd position, hash for V5 is harder to find than V6, but, from
+            // all the DAs I've analyzed, the position is pretty consintent.
+            // MTKClient confirms this as well, so this is probably correct.
+            DAType::V5 => {
+                if let Some(da1) = self.get_da1() {
+                    let search_str = b"MMU MAP: VA";
+                    if let Some(pos) =
+                        da1.data.windows(search_str.len()).position(|window| window == search_str)
+                    {
+                        let hash_pos = pos.checked_sub(0x30)?;
+                        return Some(hash_pos);
+                    }
+                }
+                None
+            }
+            // Note to self:
+            // V6 hashes are located near the DA1 signature
+            // To find them in a hex editor, get DA1 offset and DA1 length,
+            // Select block, remove 0x100 bytes (signature) and search backwards for 0x30 bytes
+            // The hash will be there :3
+            DAType::V6 => {
+                if let Some(da1) = self.get_da1() {
+                    // TODO: Consider being a decent human being and actually make sig_len a usize
+                    let search_end = da1.data.len().checked_sub(da1.sig_len as usize)?;
+                    let search_start = search_end.checked_sub(0x30)?;
+                    if search_end <= da1.data.len() {
+                        let hash_candidate = &da1.data[search_start..search_end];
+                        if hash_candidate.ends_with(&[0, 0, 0, 0]) {
+                            return Some(search_start);
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
 }
