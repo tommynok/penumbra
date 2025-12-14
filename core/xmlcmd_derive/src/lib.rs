@@ -3,6 +3,7 @@
     SPDX-FileCopyrightText: 2025 Shomy
 */
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 use quote::quote;
 use regex::Regex;
 use syn::{Attribute, Data, DeriveInput, Error, Fields, Ident, LitStr, parse_macro_input};
@@ -149,8 +150,9 @@ fn extract_field_entries(data: &Data) -> Vec<proc_macro2::TokenStream> {
                         Some(s) => quote! { Some(#s) },
                         None => quote! { None },
                     };
+                    let tag_lit = LitStr::new(&tag, Span::call_site());
                     arg_entries.push(quote! {
-                        (#section_expr, #tag, self.#ident. to_string())
+                        (#section_expr, #tag_lit, self.#ident.to_string())
                     });
                 }
 
@@ -158,7 +160,7 @@ fn extract_field_entries(data: &Data) -> Vec<proc_macro2::TokenStream> {
                     let field_names = extract_field_names(&fmt);
                     let field_idents: Vec<Ident> = field_names
                         .iter()
-                        .map(|fname| Ident::new(fname, proc_macro2::Span::call_site()))
+                        .map(|fname| Ident::new(fname, Span::call_site()))
                         .collect();
 
                     let format_args = field_idents.iter().map(|id| {
@@ -170,8 +172,9 @@ fn extract_field_entries(data: &Data) -> Vec<proc_macro2::TokenStream> {
                         None => quote! { None },
                     };
 
+                    let tag_lit = LitStr::new(&tag, Span::call_site());
                     arg_entries.push(quote! {
-                        (#section_expr, #tag, format!(#fmt, #(#format_args),*))
+                        (#section_expr, #tag_lit, format!(#fmt, #(#format_args),*))
                     });
                 }
             }

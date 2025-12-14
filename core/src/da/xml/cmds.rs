@@ -132,8 +132,18 @@ pub fn create_cmd<C: XmlCommand>(cmd: &C) -> String {
     for (section, entries) in sections {
         let tag = section.unwrap_or("arg");
         xml.push_str(&format!("<{}>", tag));
-        for (tag, content) in entries {
-            xml.push_str(&format!(r#"<{tag}>{}</{tag}>"#, content));
+        for (tag_path, content) in entries {
+            let parts: Vec<&str> = tag_path.split('/').collect();
+
+            for p in &parts {
+                xml.push_str(&format!("<{}>", p));
+            }
+
+            xml.push_str(&content);
+
+            for p in parts.iter().rev() {
+                xml.push_str(&format!("</{}>", p));
+            }
         }
         xml.push_str(&format!("</{}>", tag));
     }
