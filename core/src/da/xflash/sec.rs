@@ -69,7 +69,5 @@ pub async fn write_seccfg(xflash: &mut XFlash, seccfg: &mut SecCfgV4) -> Option<
         .await
         .ok()?;
 
-    xflash.get_status().await.ok()?;
-
     Some(seccfg_data)
 }
