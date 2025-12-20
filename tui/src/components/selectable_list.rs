@@ -10,15 +10,24 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 
-#[derive(Builder, Clone, Default)]
+#[derive(PartialEq, Builder, Clone, Default)]
 pub struct ListItemEntry {
     pub label: String,
+    // Optional value used to identify the item
+    #[builder(default, setter(strip_option))]
+    pub value: Option<String>,
     #[builder(default, setter(strip_option))]
     pub icon: Option<char>,
     #[builder(default, setter(strip_option))]
     pub style: Option<Style>,
     #[builder(private, default)]
     toggle: bool,
+}
+
+impl ListItemEntry {
+    pub fn is_toggled(&self) -> bool {
+        self.toggle
+    }
 }
 
 #[derive(Builder, Clone, Default)]
@@ -35,6 +44,8 @@ pub struct SelectableList {
     pub highlight_symbol: String,
     #[builder(default)]
     pub toggled: bool,
+    #[builder(default)]
+    pub borders: Borders,
 }
 
 impl SelectableList {
@@ -47,7 +58,7 @@ impl SelectableList {
                 let mut style = item.style.unwrap_or_else(|| Style::default().fg(Color::White));
 
                 if Some(i) == self.selected_index() {
-                    style = style.bg(Color::Gray).fg(Color::Black).add_modifier(Modifier::BOLD);
+                    style = style.fg(Color::Cyan).add_modifier(Modifier::BOLD)
                 }
 
                 let label = {
@@ -69,7 +80,7 @@ impl SelectableList {
             })
             .collect();
 
-        let block = Block::default().title(block_title).borders(Borders::ALL);
+        let block = Block::default().title(block_title).borders(self.borders);
 
         let list = List::new(list_items).block(block).highlight_symbol(&self.highlight_symbol);
 
@@ -97,15 +108,26 @@ impl SelectableList {
     pub fn selected_index(&self) -> Option<usize> {
         self.state.selected()
     }
+
+    pub fn selected_item(&self) -> Option<&ListItemEntry> {
+        if let Some(i) = self.selected_index() { self.items.get(i) } else { None }
+    }
 }
 
 impl SelectableList {
+    /// Select the currently highlighted item
     pub fn toggle_selected(&mut self) {
         if self.toggled
             && let Some(i) = self.selected_index()
             && let Some(item) = self.items.get_mut(i)
         {
             item.toggle = !item.toggle;
+        }
+    }
+
+    pub fn clear_selections(&mut self) {
+        for item in &mut self.items {
+            item.toggle = false;
         }
     }
 
