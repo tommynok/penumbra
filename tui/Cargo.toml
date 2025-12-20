@@ -29,6 +29,8 @@ indicatif = { version = "0.18.2", features = ["tokio"] }
 anyhow = "1.0.100"
 colored = "3.0.0"
 human_bytes = "0.4.3"
+rand = "0.9.2"
+unicode-width = "0.2.0"
 
 [[bin]]
 name = "antumbra"
