@@ -25,6 +25,7 @@ pub enum AppPage {
 #[derive(Default)]
 pub struct AppCtx {
     loader: Option<Loader>,
+    preloader: Option<Preloader>,
     exit: bool,
     current_page_id: AppPage,
     next_page_id: Option<AppPage>,
@@ -59,6 +60,29 @@ impl Loader {
     }
 }
 
+pub struct Preloader {
+    path: PathBuf,
+    data: Vec<u8>,
+}
+
+impl Preloader {
+    pub fn new(path: PathBuf, data: Vec<u8>) -> Self {
+        Self { path, data }
+    }
+
+    pub fn data(&self) -> Vec<u8> {
+        self.data.clone()
+    }
+
+    pub fn path(&self) -> &PathBuf {
+        &self.path
+    }
+
+    pub fn file_name(&self) -> Option<String> {
+        self.path().file_name().and_then(|name| name.to_str()).map(|s| s.to_string())
+    }
+}
+
 impl AppCtx {
     pub fn loader(&self) -> Option<&Loader> {
         self.loader.as_ref()
@@ -75,6 +99,23 @@ impl AppCtx {
 
     pub fn loader_name(&self) -> String {
         self.loader.as_ref().and_then(|l| l.loader_name()).unwrap_or("Unknown DA".to_string())
+    }
+
+    pub fn preloader(&self) -> Option<&Preloader> {
+        self.preloader.as_ref()
+    }
+
+    pub fn preloader_name(&self) -> String {
+        self.preloader.as_ref().and_then(|p| p.file_name()).unwrap_or("No Preloader".to_string())
+    }
+
+    pub fn set_preloader(&mut self, preloader_path: PathBuf, preloader_data: Vec<u8>) {
+        if let Some(preloader) = self.preloader.as_mut() {
+            preloader.path = preloader_path;
+            preloader.data = preloader_data;
+        } else {
+            self.preloader = Some(Preloader::new(preloader_path, preloader_data));
+        }
     }
 
     pub fn set_dialog(&mut self, dialog: &mut DialogBuilder) {
