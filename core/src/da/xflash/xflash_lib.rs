@@ -7,6 +7,7 @@ use std::sync::Arc;
 use log::{debug, error, info, warn};
 
 use crate::connection::Connection;
+use crate::core::auth::{AuthManager, SignPurpose, SignRequest};
 use crate::core::devinfo::DeviceInfo;
 use crate::core::emi::extract_emi_settings;
 use crate::core::storage::Storage;
@@ -212,5 +213,57 @@ impl XFlash {
         info!("[Penumbra] EMI settings uploaded successfully.");
 
         Ok(())
+    }
+
+    pub(super) async fn handle_sla(&mut self) -> Result<bool> {
+        let resp = match self.devctrl(Cmd::SlaEnabledStatus, None).await {
+            Ok(r) => r,
+            Err(_) => {
+                // The CMD might not be supported on some devices, so we just assume SLA is disabled
+                return Ok(true);
+            }
+        };
+
+        let sla_enabled = u32::from_le_bytes(resp[0..4].try_into().unwrap()) != 0;
+
+        if !sla_enabled {
+            return Ok(true);
+        }
+
+        info!("DA SLA is enabled");
+
+        let firmware_info = self.devctrl(Cmd::GetDevFwInfo, None).await?;
+        debug!("Firmware Info: {:02X?}", firmware_info);
+        let rnd = &firmware_info[4..4 + 0x10];
+        let da2_data = match self.da.get_da2() {
+            Some(da2) => da2.data.clone(),
+            None => Vec::new(),
+        };
+
+        let auth = AuthManager::get();
+        let sign_req =
+            SignRequest { data: rnd.to_vec(), purpose: SignPurpose::DaSla, pubk_mod: da2_data };
+
+        if auth.can_sign(&sign_req) {
+            info!("Found signer for DA SLA!");
+            let signed_rnd = auth.sign(&sign_req).await?;
+            info!("Signed DA SLA challenge. Uploading to device...");
+            self.devctrl(Cmd::SetRemoteSecPolicy, Some(&[&signed_rnd])).await?;
+            info!("DA SLA signature accepted!");
+            return Ok(true);
+        }
+
+        info!("No signer available for DA SLA! Trying dummy signature...");
+        let dummy_sig = vec![0u8; 256];
+        match self.devctrl(Cmd::SetRemoteSecPolicy, Some(&[&dummy_sig])).await {
+            Ok(_) => {
+                info!("DA SLA signature accepted (dummy)!");
+                Ok(true)
+            }
+            Err(e) => {
+                error!("DA SLA signature rejected (dummy): {}", e);
+                Err(e)
+            }
+        }
     }
 }

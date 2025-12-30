@@ -79,6 +79,7 @@ impl DAProtocol for XFlash {
         match self.boot_to(da2addr, &da2data).await {
             Ok(true) => {
                 info!("[Penumbra] Successfully uploaded and executed DA2");
+                self.handle_sla().await?;
                 // Refetch packet lengths after DA2, since DA2 operates on higher speeds
                 flash::get_packet_length(self).await?;
                 self.boot_extensions().await?;
