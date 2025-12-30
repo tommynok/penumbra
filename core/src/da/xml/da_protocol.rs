@@ -6,7 +6,7 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use log::{debug, info};
+use log::{debug, error, info};
 use tokio::io::{AsyncRead, AsyncWrite, BufReader};
 use tokio::sync::Mutex;
 
@@ -198,14 +198,36 @@ impl DAProtocol for Xml {
     }
 
     async fn get_partitions(&mut self) -> Vec<Partition> {
-        let storage_type = self.get_storage_type().await;
+        let storage = match self.get_storage().await {
+            Some(s) => s,
+            None => {
+                error!("[Penumbra] Failed to get storage for partition parsing");
+                return Vec::new();
+            }
+        };
+
+        let storage_type = storage.kind();
+        let pl_part1 = storage.get_pl_part1();
+        let pl_part2 = storage.get_pl_part2();
+        let pl1_size = storage.get_pl1_size() as usize;
+        let pl2_size = storage.get_pl2_size() as usize;
+
+        let mut partitions = Vec::<Partition>::new();
+
+        let preloader = Partition::new("preloader", pl1_size, 0, pl_part1);
+        let preloader_backup = Partition::new("preloader_backup", pl2_size, 0, pl_part2);
+        partitions.push(preloader);
+        partitions.push(preloader_backup);
 
         let mut progress = |_, _| {};
         let mut pgpt_data = Vec::new();
         let mut cursor = Cursor::new(&mut pgpt_data);
         self.upload("PGPT".into(), &mut cursor, &mut progress).await.ok();
 
-        parse_gpt(&pgpt_data, storage_type).unwrap_or_default()
+        let gpt_parts = parse_gpt(&pgpt_data, storage_type).unwrap_or_default();
+        partitions.extend(gpt_parts);
+
+        partitions
     }
 
     async fn set_seccfg_lock_state(&mut self, _locked: LockFlag) -> Option<Vec<u8>> {
