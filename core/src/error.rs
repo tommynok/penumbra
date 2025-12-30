@@ -66,6 +66,13 @@ impl From<nusb::Error> for Error {
     }
 }
 
+#[cfg(feature = "libusb")]
+impl From<rusb::Error> for Error {
+    fn from(err: rusb::Error) -> Self {
+        Error::io(err.to_string())
+    }
+}
+
 /*
     XFlash error codes work as follows:
 
