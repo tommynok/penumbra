@@ -47,8 +47,10 @@ pub struct CliArgs {
 mtk_commands! {
     Download(DownloadArgs),
     Upload(UploadArgs),
+    Format(FormatArgs),
     Write(WriteArgs),
     Read(ReadArgs),
+    Erase(EraseArgs),
     ReadAll(ReadAllArgs),
     Seccfg(SeccfgArgs),
     Pgpt(PgptArgs),

@@ -3,6 +3,8 @@
     SPDX-FileCopyrightText: 2025 Shomy
 */
 pub mod download;
+pub mod erase;
+pub mod format;
 pub mod pgpt;
 pub mod read;
 pub mod readall;
@@ -11,6 +13,8 @@ pub mod upload;
 pub mod write;
 
 pub use download::DownloadArgs;
+pub use erase::EraseArgs;
+pub use format::FormatArgs;
 pub use pgpt::PgptArgs;
 pub use read::ReadArgs;
 pub use readall::ReadAllArgs;
