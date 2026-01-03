@@ -74,7 +74,8 @@ impl DAProtocol for Xml {
         xmlcmd_e!(self, HostSupportedCommands, HOST_CMDS)?;
 
         xmlcmd!(self, NotifyInitHw)?;
-        self.progress_report().await?;
+        let mut mock_progress = |_, _| {};
+        self.progress_report(&mut mock_progress).await?;
         self.lifetime_ack(XmlCmdLifetime::CmdEnd).await?;
 
         info!("Successfully uploaded and booted to XML DA2");
