@@ -71,7 +71,7 @@ impl DAProtocol for Xml {
             .map_err(|e| Error::proto(format!("Failed to upload and boot to XML DA2: {}", e)))?;
 
         // This might fail on some devices, but we can ignore the error
-        xmlcmd_e!(self, HostSupportedCommands, HOST_CMDS)?;
+        xmlcmd_e!(self, HostSupportedCommands, HOST_CMDS).ok();
 
         xmlcmd!(self, NotifyInitHw)?;
         let mut mock_progress = |_, _| {};
