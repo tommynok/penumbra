@@ -7,7 +7,10 @@ use std::time::{Duration, Instant};
 use rand::Rng;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
+
+use crate::components::ThemedWidgetMut;
+use crate::themes::Theme;
 
 // TODO: Consider adding more stars for more whimsy vibes
 const STAR_CHARS: [char; 4] = ['✦', '✧', '·', ' '];
@@ -37,11 +40,13 @@ impl Stars {
         Self { stars: Vec::new(), last_area: Rect::default(), density }
     }
 
+    #[allow(dead_code)]
     /// Stars are more sparse, fewer stars
     pub fn sparse() -> Self {
         Self::new(0.4)
     }
 
+    #[allow(dead_code)]
     /// Lots of stars
     pub fn dense() -> Self {
         Self::new(2.0)
@@ -92,20 +97,28 @@ impl Stars {
         self.last_area = area;
     }
 
-    /// Render stars in the given area
-    pub fn render(&mut self, area: Rect, buf: &mut Buffer) {
+    #[allow(dead_code)]
+    /// Render stars only in top and bottom bands
+    pub fn render_bands(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        top_rows: u16,
+        bottom_rows: u16,
+        theme: &Theme,
+    ) {
         if area != self.last_area {
             self.regenerate(area);
         }
 
-        let style = Style::default().fg(Color::DarkGray);
+        let style = Style::default().fg(theme.muted);
 
         for star in &self.stars {
-            if star.x >= area.x
-                && star.x < area.x + area.width
-                && star.y >= area.y
-                && star.y < area.y + area.height
-            {
+            let in_top = star.y >= area.y && star.y < area.y + top_rows;
+            let in_bottom = star.y >= area.y + area.height.saturating_sub(bottom_rows)
+                && star.y < area.y + area.height;
+
+            if (in_top || in_bottom) && star.x >= area.x && star.x < area.x + area.width {
                 let ch = STAR_CHARS[star.char_idx];
                 if ch != ' '
                     && let Some(cell) = buf.cell_mut((star.x, star.y))
@@ -115,21 +128,23 @@ impl Stars {
             }
         }
     }
+}
 
-    /// Render stars only in top and bottom bands
-    pub fn render_bands(&mut self, area: Rect, buf: &mut Buffer, top_rows: u16, bottom_rows: u16) {
+impl ThemedWidgetMut for Stars {
+    /// Render stars in the given area
+    fn render(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme) {
         if area != self.last_area {
             self.regenerate(area);
         }
 
-        let style = Style::default().fg(Color::DarkGray);
+        let style = Style::default().fg(theme.muted);
 
         for star in &self.stars {
-            let in_top = star.y >= area.y && star.y < area.y + top_rows;
-            let in_bottom = star.y >= area.y + area.height.saturating_sub(bottom_rows)
-                && star.y < area.y + area.height;
-
-            if (in_top || in_bottom) && star.x >= area.x && star.x < area.x + area.width {
+            if star.x >= area.x
+                && star.x < area.x + area.width
+                && star.y >= area.y
+                && star.y < area.y + area.height
+            {
                 let ch = STAR_CHARS[star.char_idx];
                 if ch != ' '
                     && let Some(cell) = buf.cell_mut((star.x, star.y))

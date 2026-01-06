@@ -21,7 +21,7 @@ macro_rules! info_dialog {
 macro_rules! error_dialog {
     ($ctx:expr, $message:expr) => {
         $ctx.dialog = Some({
-            let mut builder = crate::components::DialogBuilder::error($message);
+            let mut builder = crate::components::DialogBuilder::error($message, &$ctx.theme);
             let button = crate::components::DialogButton::new("OK", || {});
             builder.button(button);
             builder.build().unwrap()

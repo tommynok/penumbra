@@ -13,7 +13,7 @@ use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::KeyEventKind;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style};
+use ratatui::style::Style;
 use ratatui::widgets::Paragraph;
 
 use super::LOGO;
@@ -26,6 +26,7 @@ use crate::components::{
     ExplorerResult,
     FileExplorer,
     Stars,
+    ThemedWidgetMut,
 };
 use crate::pages::Page;
 
@@ -157,7 +158,7 @@ impl WelcomePage {
         } else {
             "Not selected".to_string()
         };
-        let style_border = Style::default().fg(Color::DarkGray);
+        let style_border = Style::default().fg(ctx.theme.muted);
 
         let cards = vec![
             Card::new("☽ DA", &da_value, card_width, style_border),
@@ -174,7 +175,7 @@ impl Page for WelcomePage {
         let area = f.area();
 
         self.stars.tick();
-        self.stars.render(area, f.buffer_mut());
+        self.stars.render(area, f.buffer_mut(), &ctx.theme);
 
         // Layout
         let chunks = Layout::default()
@@ -191,7 +192,7 @@ impl Page for WelcomePage {
         // Logo
         let logo = Paragraph::new(LOGO)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::Cyan));
+            .style(Style::default().fg(ctx.theme.accent));
         f.render_widget(logo, chunks[1]);
 
         let menu_layout = Layout::default()
@@ -199,17 +200,17 @@ impl Page for WelcomePage {
             .constraints([Constraint::Fill(1), Constraint::Length(50), Constraint::Fill(1)])
             .split(chunks[2]);
 
-        self.menu.render(menu_layout[1], f.buffer_mut());
+        self.menu.render(menu_layout[1], f.buffer_mut(), &ctx.theme);
 
         self.render_status_cards(chunks[3], f.buffer_mut(), ctx);
 
         let footer = Paragraph::new("[↑↓] Navigate    [Enter] Select    [Esc] Back")
             .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::DarkGray));
+            .style(Style::default().fg(ctx.theme.muted));
         f.render_widget(footer, chunks[4]);
 
-        if let WelcomeState::Browsing { explorer, callback: _ } = &self.state {
-            explorer.render_modal(area, f.buffer_mut());
+        if let WelcomeState::Browsing { explorer, callback: _ } = &mut self.state {
+            explorer.render_modal(area, f.buffer_mut(), &ctx.theme);
         }
     }
 

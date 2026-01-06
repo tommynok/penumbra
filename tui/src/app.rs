@@ -9,27 +9,33 @@ use std::time::Duration;
 use anyhow::Result;
 use penumbra::da::DAFile;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use ratatui::style::Style;
+use ratatui::widgets::Block;
 use ratatui::{DefaultTerminal, Frame};
 
 use crate::cli::CliArgs;
+use crate::components::ThemedWidgetRef;
 use crate::components::dialog::{Dialog, DialogBuilder};
-use crate::pages::{DevicePage, Page, WelcomePage};
 use crate::config::AntumbraConfig;
+use crate::pages::{DevicePage, OptionsPage, Page, WelcomePage};
+use crate::themes::{Theme, load_themes};
 
 #[derive(PartialEq, Clone, Copy, Default)]
 pub enum AppPage {
     #[default]
     Welcome,
     DevicePage,
+    Options,
 }
 
-#[derive(Default)]
 pub struct AppCtx {
     loader: Option<Loader>,
     preloader: Option<Preloader>,
     exit: bool,
     current_page_id: AppPage,
     next_page_id: Option<AppPage>,
+    config: AntumbraConfig,
+    pub theme: Theme,
     pub dialog: Option<Dialog>,
 }
 
@@ -130,6 +136,42 @@ impl AppCtx {
     pub fn quit(&mut self) {
         self.exit = true;
     }
+
+    pub fn set_theme(&mut self, theme_id: &str) {
+        let themes = load_themes();
+        if let Some(theme) = themes.get(theme_id) {
+            self.theme = theme();
+            self.config.theme = self.theme.id.to_string();
+            self.config.save().ok();
+        }
+    }
+
+    pub fn config(&mut self) -> &mut AntumbraConfig {
+        &mut self.config
+    }
+}
+
+impl Default for AppCtx {
+    fn default() -> Self {
+        let config = AntumbraConfig::load();
+        let theme_map = load_themes();
+
+        let theme = theme_map
+            .get(config.theme.as_str())
+            .map(|constructor| constructor())
+            .unwrap_or_default();
+
+        Self {
+            loader: None,
+            preloader: None,
+            exit: false,
+            current_page_id: AppPage::default(),
+            next_page_id: None,
+            config,
+            theme,
+            dialog: None,
+        }
+    }
 }
 
 impl App {
@@ -196,10 +238,14 @@ impl App {
     fn draw(&mut self, frame: &mut Frame<'_>) {
         let size = frame.area();
 
+        let style = Style::default().bg(self.context.theme.background);
+        let background = Block::default().style(style);
+        frame.render_widget(background, size);
+
         self.current_page.render(frame, &mut self.context);
 
         if let Some(dialog) = &self.context.dialog {
-            dialog.render(size, frame.buffer_mut());
+            dialog.render_ref(size, frame.buffer_mut(), &self.context.theme);
         }
     }
 
@@ -211,6 +257,7 @@ impl App {
         let new_page: Box<dyn Page + Send> = match page {
             AppPage::Welcome => Box::new(WelcomePage::new()),
             AppPage::DevicePage => Box::new(DevicePage::new()),
+            AppPage::Options => Box::new(OptionsPage::new()),
         };
 
         self.current_page = new_page;

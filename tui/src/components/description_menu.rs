@@ -4,7 +4,11 @@
 */
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+
+use crate::components::ThemedWidgetMut;
+use crate::themes::Theme;
 
 #[derive(Clone)]
 pub struct DescriptionMenuItem {
@@ -87,8 +91,10 @@ impl DescriptionMenu {
         }
         lines
     }
+}
 
-    pub fn render(&mut self, area: Rect, buf: &mut Buffer) {
+impl ThemedWidgetMut for DescriptionMenu {
+    fn render(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme) {
         // TODO: Stop using magic values here
         let y_spacing = 1u16;
         let avail = (area.height.saturating_sub(2)) as usize;
@@ -120,9 +126,9 @@ impl DescriptionMenu {
             }
 
             let style = if is_selected {
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(theme.text)
             };
 
             let text = format!("{}  {}", item.icon, item.label);
@@ -135,13 +141,13 @@ impl DescriptionMenu {
                 base_x,
                 start_y.saturating_sub(1),
                 "↑",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.muted),
             );
         }
         if win_end < items.len() {
             let y = start_y + self.max_visible as u16 * y_spacing;
             if y < area.y + area.height {
-                buf.set_string(base_x, y, "↓", Style::default().fg(Color::DarkGray));
+                buf.set_string(base_x, y, "↓", Style::default().fg(theme.muted));
             }
         }
 
@@ -161,21 +167,28 @@ impl DescriptionMenu {
             }
 
             let accent_top = format!("╭{}╮", "─".repeat(desc_width.saturating_sub(2) as usize));
-            buf.set_string(desc_x, box_y, &accent_top, Style::default().fg(Color::Magenta));
+            buf.set_string(desc_x, box_y, &accent_top, Style::default().fg(theme.foreground));
             for (j, line) in lines.iter().enumerate() {
-                if (j as u16) + 1 < max_box_height - 1
-                    && box_y + 1 + (j as u16) < area.y + area.height
-                {
-                    let msg = format!(
-                        "│ {: <width$} │",
-                        line,
-                        width = (desc_width.saturating_sub(4) as usize)
-                    );
-                    let line_style = Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::ITALIC | Modifier::BOLD);
-                    buf.set_string(desc_x, box_y + 1 + j as u16, &msg, line_style);
+                let y = box_y + 1 + j as u16;
+                if (j as u16) + 1 >= max_box_height - 1 || y >= area.y + area.height {
+                    continue;
                 }
+
+                let line_width = desc_width.saturating_sub(4) as usize;
+                let padded_text = format!("{:<width$}", line, width = line_width);
+
+                let line_spans = Line::from(vec![
+                    Span::styled("│ ", Style::default().fg(theme.foreground)),
+                    Span::styled(
+                        padded_text,
+                        Style::default()
+                            .fg(theme.info)
+                            .add_modifier(Modifier::ITALIC | Modifier::BOLD),
+                    ),
+                    Span::styled(" │", Style::default().fg(theme.foreground)),
+                ]);
+
+                buf.set_line(desc_x, y, &line_spans, desc_width);
             }
 
             let accent_bottom = format!("╰{}╯", "─".repeat(desc_width.saturating_sub(2) as usize));
@@ -183,7 +196,7 @@ impl DescriptionMenu {
                 desc_x,
                 box_y + box_height - 1,
                 &accent_bottom,
-                Style::default().fg(Color::Magenta),
+                Style::default().fg(theme.foreground),
             );
         }
     }

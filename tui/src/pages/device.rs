@@ -19,9 +19,9 @@ use ratatui::crossterm::event::KeyEventKind;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::prelude::{Alignment, Frame};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Row, Table, WidgetRef};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Row, Table};
 use strum::IntoEnumIterator;
 use strum_macros::{AsRefStr, EnumIter};
 use tokio::fs::File;
@@ -38,7 +38,14 @@ use crate::components::selectable_list::{
     SelectableList,
     SelectableListBuilder,
 };
-use crate::components::{ExplorerResult, FileExplorer, ProgressBar, Stars};
+use crate::components::{
+    ExplorerResult,
+    FileExplorer,
+    ProgressBar,
+    Stars,
+    ThemedWidgetMut,
+    ThemedWidgetRef,
+};
 use crate::pages::Page;
 
 /// Which panel is currently focused
@@ -540,13 +547,13 @@ impl DevicePage {
     }
 
     /// Renders the background (stars :D)
-    fn render_background(&mut self, frame: &mut Frame<'_>, area: Rect) {
-        self.stars.render(area, frame.buffer_mut());
+    fn render_background(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &mut AppCtx) {
+        self.stars.render(area, frame.buffer_mut(), &ctx.theme);
         self.stars.tick();
     }
 
     /// Renders the whole layout
-    fn render_layout(&mut self, frame: &mut Frame<'_>, area: Rect) {
+    fn render_layout(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &mut AppCtx) {
         let vertical = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -563,23 +570,23 @@ impl DevicePage {
             .constraints([Constraint::Min(0)])
             .split(vertical[1]);
 
-        self.render_header(frame, vertical[0]);
-        self.render_content(frame, centered[0]);
-        self.render_progress(frame, vertical[2]);
-        self.render_footer(frame, vertical[3]);
+        self.render_header(frame, vertical[0], ctx);
+        self.render_content(frame, centered[0], ctx);
+        self.render_progress(frame, vertical[2], ctx);
+        self.render_footer(frame, vertical[3], ctx);
     }
 
     /// Header banner
-    fn render_header(&self, frame: &mut Frame<'_>, area: Rect) {
+    fn render_header(&self, frame: &mut Frame<'_>, area: Rect, ctx: &mut AppCtx) {
         let status = match &self.device_state.status {
             DeviceStatus::Disconnected => {
-                Span::styled("  Disconnected ", Style::default().fg(Color::DarkGray))
+                Span::styled("  Disconnected ", Style::default().fg(ctx.theme.muted))
             }
             DeviceStatus::Connecting => {
-                Span::styled("  Connecting… ", Style::default().fg(Color::Yellow))
+                Span::styled("  Connecting… ", Style::default().fg(ctx.theme.warning))
             }
             DeviceStatus::Connected => {
-                Span::styled("  Connected ", Style::default().fg(Color::Green))
+                Span::styled("  Connected ", Style::default().fg(ctx.theme.success))
             }
         };
 
@@ -590,14 +597,14 @@ impl DevicePage {
             Span::raw(" | "),
             Span::styled(
                 self.status_message.as_deref().unwrap_or(" "),
-                Style::default().fg(Color::LightBlue),
+                Style::default().fg(ctx.theme.info),
             ),
         ]))
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
-                .style(Style::default().fg(Color::Cyan)),
+                .style(Style::default().fg(ctx.theme.accent)),
         )
         .alignment(Alignment::Left);
 
@@ -605,7 +612,7 @@ impl DevicePage {
     }
 
     /// Menu + Device Info
-    fn render_content(&mut self, frame: &mut Frame<'_>, area: Rect) {
+    fn render_content(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &mut AppCtx) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
@@ -615,34 +622,35 @@ impl DevicePage {
             ])
             .split(area);
 
-        self.render_menu(frame, chunks[0]);
-        self.render_device_info(frame, chunks[2]);
+        self.render_menu(frame, chunks[0], ctx);
+        self.render_device_info(frame, chunks[2], ctx);
     }
 
     /// Action menu
-    fn render_menu(&mut self, frame: &mut Frame<'_>, area: Rect) {
+    fn render_menu(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &mut AppCtx) {
         let block = Block::default()
             .title(" ACTIONS ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::DarkGray));
+            .border_style(Style::default().fg(ctx.theme.text));
 
         frame.render_widget(block.clone(), area);
-        self.menu.render(block.inner(area), frame, "");
+        self.menu.render(block.inner(area), frame.buffer_mut(), &ctx.theme);
     }
 
     /// Device info card
-    fn render_device_info(&mut self, frame: &mut Frame<'_>, area: Rect) {
+    fn render_device_info(&mut self, frame: &mut Frame<'_>, area: Rect, ctx: &mut AppCtx) {
         let block = Block::default()
             .title(" DEVICE INFO ")
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded);
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(ctx.theme.text));
 
         frame.render_widget(block.clone(), area);
         let inner = block.inner(area);
 
         if !self.device_state.is_connected() {
-            self.render_disconnected(frame, inner);
+            self.render_disconnected(frame, inner, ctx);
             return;
         }
 
@@ -651,21 +659,21 @@ impl DevicePage {
             .constraints([Constraint::Length(8), Constraint::Length(1), Constraint::Min(0)])
             .split(inner);
 
-        self.render_device_table(frame, chunks[0]);
-        self.partition_list.render(chunks[2], frame, "");
+        self.render_device_table(frame, chunks[0], ctx);
+        self.partition_list.render(chunks[2], frame.buffer_mut(), &ctx.theme);
     }
 
     /// Disconnected message
-    fn render_disconnected(&self, frame: &mut Frame<'_>, area: Rect) {
+    fn render_disconnected(&self, frame: &mut Frame<'_>, area: Rect, ctx: &mut AppCtx) {
         let message = Paragraph::new(vec![
             Line::from(""),
             Line::from(Span::styled(
                 " Waiting for device connection…",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default().fg(ctx.theme.warning).add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
                 " (Plug device in BOOTROM or Preloader mode)",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(ctx.theme.muted),
             )),
         ])
         .alignment(Alignment::Center);
@@ -674,7 +682,7 @@ impl DevicePage {
     }
 
     /// Device configuration table
-    fn render_device_table(&self, frame: &mut Frame<'_>, area: Rect) {
+    fn render_device_table(&self, frame: &mut Frame<'_>, area: Rect, ctx: &mut AppCtx) {
         let Some(devinfo) = &self.devinfo else { return };
 
         let hw_code = format!("0x{:X}", devinfo.hw_code);
@@ -692,18 +700,19 @@ impl DevicePage {
 
         let table = Table::new(rows, [Constraint::Percentage(45), Constraint::Percentage(55)])
             .block(Block::default().borders(Borders::BOTTOM))
-            .column_spacing(1);
+            .column_spacing(1)
+            .style(Style::default().fg(ctx.theme.text));
 
         frame.render_widget(table, area);
     }
 
     /// Progress bar
-    fn render_progress(&self, frame: &mut Frame<'_>, area: Rect) {
+    fn render_progress(&self, frame: &mut Frame<'_>, area: Rect, ctx: &mut AppCtx) {
         let block = Block::default()
             .title(" PROGRESS ")
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .style(Style::default().fg(Color::Cyan));
+            .style(Style::default().fg(ctx.theme.accent));
 
         frame.render_widget(block.clone(), area);
 
@@ -715,14 +724,14 @@ impl DevicePage {
             .constraints([Constraint::Length(3)])
             .split(inner)[0];
 
-        self.progress_bar.render_ref(bar_area, frame.buffer_mut());
+        self.progress_bar.render_ref(bar_area, frame.buffer_mut(), &ctx.theme);
     }
 
     /// Footer help text
-    fn render_footer(&self, frame: &mut Frame<'_>, area: Rect) {
+    fn render_footer(&self, frame: &mut Frame<'_>, area: Rect, ctx: &mut AppCtx) {
         let footer = Paragraph::new("[↑↓] Navigate   [Enter] Select   [Esc] Back")
             .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::DarkGray));
+            .style(Style::default().fg(ctx.theme.foreground));
 
         frame.render_widget(footer, area);
     }
@@ -730,14 +739,14 @@ impl DevicePage {
 
 #[async_trait]
 impl Page for DevicePage {
-    fn render(&mut self, frame: &mut Frame<'_>, _ctx: &mut AppCtx) {
+    fn render(&mut self, frame: &mut Frame<'_>, ctx: &mut AppCtx) {
         let area = frame.area();
 
-        self.render_background(frame, area);
-        self.render_layout(frame, area);
+        self.render_background(frame, area, ctx);
+        self.render_layout(frame, area, ctx);
 
-        if let Some(explorer) = &self.explorer {
-            explorer.render_modal(area, frame.buffer_mut());
+        if let Some(explorer) = &mut self.explorer {
+            explorer.render_modal(area, frame.buffer_mut(), &ctx.theme);
         }
     }
 

@@ -5,10 +5,13 @@
  */
 
 use derive_builder::Builder;
-use ratatui::Frame;
+use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
+use ratatui::style::{Modifier, Style};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, StatefulWidgetRef};
+
+use crate::components::ThemedWidgetMut;
+use crate::themes::Theme;
 
 #[derive(PartialEq, Builder, Clone, Default)]
 pub struct ListItemEntry {
@@ -46,19 +49,21 @@ pub struct SelectableList {
     pub toggled: bool,
     #[builder(default)]
     pub borders: Borders,
+    #[builder(default)]
+    pub block_title: String,
 }
 
-impl SelectableList {
-    pub fn render(&mut self, area: Rect, f: &mut Frame, block_title: &str) {
+impl ThemedWidgetMut for SelectableList {
+    fn render(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme) {
         let list_items: Vec<ListItem> = self
             .items
             .iter()
             .enumerate()
             .map(|(i, item)| {
-                let mut style = item.style.unwrap_or_else(|| Style::default().fg(Color::White));
+                let mut style = item.style.unwrap_or_else(|| Style::default().fg(theme.text));
 
                 if Some(i) == self.selected_index() {
-                    style = style.fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    style = style.fg(theme.accent).add_modifier(Modifier::BOLD)
                 }
 
                 let label = {
@@ -80,11 +85,11 @@ impl SelectableList {
             })
             .collect();
 
-        let block = Block::default().title(block_title).borders(self.borders);
+        let block = Block::default().title(self.block_title.as_str()).borders(self.borders);
 
         let list = List::new(list_items).block(block).highlight_symbol(&self.highlight_symbol);
 
-        f.render_stateful_widget(list, area, &mut self.state);
+        list.render_ref(area, buf, &mut self.state);
     }
 }
 

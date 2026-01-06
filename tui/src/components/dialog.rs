@@ -8,6 +8,9 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph, Widget, Wrap};
 use strum_macros::AsRefStr;
 
+use crate::components::ThemedWidgetRef;
+use crate::themes::Theme;
+
 #[derive(Clone, Copy, AsRefStr, Default)]
 #[allow(unused)]
 pub enum DialogType {
@@ -66,38 +69,6 @@ pub struct Dialog {
 }
 
 impl Dialog {
-    pub fn render(&self, area: Rect, buf: &mut Buffer) {
-        let width = area.width / 2;
-        let height = area.height / 2;
-        let x = area.x + (area.width - width) / 2;
-        let y = area.y + (area.height - height) / 2;
-        let dialog_area = Rect::new(x, y, width, height);
-
-        // Force clear the dialog area so that there is no garbage left on the dialog
-        Self::clean_area(&dialog_area, buf, Color::Black);
-
-        let block = Block::default()
-            .title(Span::styled(
-                self.dialog_type.as_ref(),
-                Style::default().fg(self.colors.title_color),
-            ))
-            .borders(Borders::ALL)
-            .style(Style::default().bg(self.colors.bg_color).fg(Color::White));
-
-        block.clone().render(dialog_area, buf);
-
-        let inner = block.inner(dialog_area);
-
-        Paragraph::new(&*self.message)
-            .alignment(Alignment::Center)
-            .wrap(Wrap { trim: true })
-            .style(Style::default().fg(Color::White).bg(self.colors.bg_color))
-            .render(inner, buf);
-
-        // Buttons
-        self.init_buttons(&inner, buf);
-    }
-
     fn init_buttons(&self, inner: &Rect, buffer: &mut Buffer) {
         let buttons_y = inner.y + inner.height.saturating_sub(2);
         let total_width: u16 = self.buttons.iter().map(|b| b.title.len() as u16 + 4).sum();
@@ -129,6 +100,40 @@ impl Dialog {
     }
 }
 
+impl ThemedWidgetRef for Dialog {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer, theme: &Theme) {
+        let width = area.width / 2;
+        let height = area.height / 2;
+        let x = area.x + (area.width - width) / 2;
+        let y = area.y + (area.height - height) / 2;
+        let dialog_area = Rect::new(x, y, width, height);
+
+        // Force clear the dialog area so that there is no garbage left on the dialog
+        Self::clean_area(&dialog_area, buf, theme.background);
+
+        let block = Block::default()
+            .title(Span::styled(
+                self.dialog_type.as_ref(),
+                Style::default().fg(self.colors.title_color),
+            ))
+            .borders(Borders::ALL)
+            .style(Style::default().bg(self.colors.bg_color).fg(theme.foreground));
+
+        block.clone().render(dialog_area, buf);
+
+        let inner = block.inner(dialog_area);
+
+        Paragraph::new(&*self.message)
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(theme.text).bg(self.colors.bg_color))
+            .render(inner, buf);
+
+        // Buttons
+        self.init_buttons(&inner, buf);
+    }
+}
+
 // Actions
 impl Dialog {
     pub fn press_selected(&mut self) {
@@ -152,26 +157,26 @@ impl Dialog {
 
 #[allow(unused)]
 impl DialogBuilder {
-    pub fn error(message: impl Into<String>) -> Self {
+    pub fn error(message: impl Into<String>, theme: &Theme) -> Self {
         let mut builder = DialogBuilder::default();
         builder.dialog_type(DialogType::Error);
-        builder.colors(DialogColors::new(Color::Red, Color::Black));
+        builder.colors(DialogColors::new(theme.error, theme.highlight));
         builder.message(message);
         builder
     }
 
-    pub fn info(message: impl Into<String>) -> Self {
+    pub fn info(message: impl Into<String>, theme: &Theme) -> Self {
         let mut builder = DialogBuilder::default();
         builder.dialog_type(DialogType::Info);
-        builder.colors(DialogColors::new(Color::Cyan, Color::Black));
+        builder.colors(DialogColors::new(theme.info, theme.highlight));
         builder.message(message);
         builder
     }
 
-    pub fn other(message: impl Into<String>) -> Self {
+    pub fn other(message: impl Into<String>, theme: &Theme) -> Self {
         let mut builder = DialogBuilder::default();
         builder.dialog_type(DialogType::Other);
-        builder.colors(DialogColors::new(Color::Gray, Color::Black));
+        builder.colors(DialogColors::new(theme.muted, theme.highlight));
         builder.message(message);
         builder
     }

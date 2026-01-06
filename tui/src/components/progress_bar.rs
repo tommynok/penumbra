@@ -6,9 +6,12 @@ use std::time::Instant;
 
 use human_bytes::human_bytes;
 use ratatui::prelude::{Buffer, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, WidgetRef};
+
+use crate::components::ThemedWidgetRef;
+use crate::themes::Theme;
 
 #[derive(Debug, Clone)]
 pub enum ProgressMode {
@@ -22,7 +25,6 @@ pub struct ProgressBar {
     written_bytes: u64,
     message: String,
     start_time: Option<Instant>,
-    style: Style,
 }
 
 impl ProgressBar {
@@ -33,7 +35,6 @@ impl ProgressBar {
             written_bytes: 0,
             message: String::from("No active operation"),
             start_time: None,
-            style: Style::default().fg(Color::DarkGray),
         }
     }
 
@@ -43,7 +44,6 @@ impl ProgressBar {
         self.written_bytes = 0;
         self.message = message.into();
         self.start_time = Some(Instant::now());
-        self.style = Style::default().fg(Color::Cyan);
     }
 
     /// Update written bytes
@@ -66,7 +66,6 @@ impl ProgressBar {
         self.written_bytes = 0;
         self.message = String::from("No active operation");
         self.start_time = None;
-        self.style = Style::default().fg(Color::DarkGray);
     }
 
     fn ratio(&self) -> f64 {
@@ -88,19 +87,21 @@ impl ProgressBar {
     }
 }
 
-impl WidgetRef for ProgressBar {
-    fn render_ref(&self, area: Rect, buf: &mut Buffer) {
+impl ThemedWidgetRef for ProgressBar {
+    fn render_ref(&self, area: Rect, buf: &mut Buffer, theme: &Theme) {
         if area.height < 3 {
             return;
         }
 
+        let style = match self.mode {
+            ProgressMode::Idle => Style::default().fg(theme.muted).add_modifier(Modifier::ITALIC),
+            ProgressMode::Active => Style::default().fg(theme.accent),
+        };
+
         match self.mode {
             ProgressMode::Idle => {
                 let lines = vec![
-                    Line::from(Span::styled(
-                        "No active operation",
-                        self.style.add_modifier(Modifier::ITALIC),
-                    )),
+                    Line::from(Span::styled("No active operation", style)),
                     Line::from(Span::raw("")),
                     Line::from(Span::raw("")),
                 ];
@@ -121,8 +122,8 @@ impl WidgetRef for ProgressBar {
                 let speed = human_bytes(self.speed());
 
                 let lines = vec![
-                    Line::from(Span::styled(&self.message, self.style)),
-                    Line::from(Span::styled(bar, self.style)),
+                    Line::from(Span::styled(&self.message, style)),
+                    Line::from(Span::styled(bar, style)),
                     Line::from(vec![
                         Span::raw(format!("{written} / {total}")),
                         Span::raw("  •  "),

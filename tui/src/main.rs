@@ -11,6 +11,7 @@ mod config;
 mod error;
 mod logger;
 mod pages;
+mod themes;
 
 use anyhow::Result;
 use app::App;

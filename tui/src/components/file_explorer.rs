@@ -12,7 +12,9 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::prelude::Buffer;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget, WidgetRef};
-use ratatui_explorer::{FileExplorer as Inner, Theme};
+use ratatui_explorer::{FileExplorer as Inner, Theme as ExplorerTheme};
+
+use crate::themes::Theme;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExplorerResult {
@@ -32,7 +34,7 @@ pub struct FileExplorer {
 
 impl FileExplorer {
     pub fn new(title: impl Into<String>) -> Result<Self> {
-        let theme = Theme::default()
+        let theme = ExplorerTheme::default()
             .with_dir_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
             .with_highlight_item_style(
                 Style::default().bg(Color::Cyan).fg(Color::Black).add_modifier(Modifier::BOLD),
@@ -205,11 +207,12 @@ impl FileExplorer {
         }
     }
 
-    pub fn render(&self, area: Rect, frame: &mut Frame) {
+    #[allow(dead_code)]
+    pub fn render(&self, area: Rect, frame: &mut Frame, _theme: &Theme) {
         frame.render_widget(&self.inner.widget(), area);
     }
 
-    pub fn render_modal(&self, area: Rect, buf: &mut Buffer) {
+    pub fn render_modal(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme) {
         let width = (area.width * 70) / 100;
         let height = (area.height * 70) / 100;
         let x = area.x + (area.width - width) / 2;
@@ -221,9 +224,9 @@ impl FileExplorer {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Thick)
-            .border_style(Style::default().fg(Color::Cyan))
+            .border_style(Style::default().fg(theme.accent))
             .title(self.title.as_str())
-            .style(Style::default().bg(Color::Black));
+            .style(Style::default().bg(theme.highlight));
 
         block.clone().render(modal_area, buf);
         let inner_area = block.inner(modal_area);
@@ -235,9 +238,27 @@ impl FileExplorer {
 
         let path_str = self.inner.cwd().display().to_string();
         let header = Paragraph::new(format!(" 📂 {path_str} "))
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+            .style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD));
 
         header.render(chunks[0], buf);
+        self.inner.set_theme(
+            ExplorerTheme::default()
+                .with_dir_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+                .with_highlight_item_style(
+                    Style::default()
+                        .bg(theme.accent)
+                        .fg(theme.background)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .with_item_style(Style::default().fg(theme.text))
+                .with_highlight_dir_style(
+                    Style::default()
+                        .bg(theme.accent)
+                        .fg(theme.background)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .with_style(Style::default().fg(theme.text)), // Inner border
+        );
         self.inner.widget().render_ref(chunks[1], buf);
 
         let help_text = if self.directories_only {
@@ -248,7 +269,7 @@ impl FileExplorer {
 
         let help = Paragraph::new(help_text)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::DarkGray));
+            .style(Style::default().fg(theme.muted));
         help.render(chunks[2], buf);
     }
 }
