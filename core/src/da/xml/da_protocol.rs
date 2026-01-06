@@ -254,15 +254,15 @@ impl DAProtocol for Xml {
     }
 
     fn patch_da(&mut self) -> Option<DA> {
-        None
+        patch::patch_da(self).ok()
     }
 
     fn patch_da1(&mut self) -> Option<DAEntryRegion> {
-        None
+        patch::patch_da1(self).ok()
     }
 
     fn patch_da2(&mut self) -> Option<DAEntryRegion> {
-        None
+        patch::patch_da2(self).ok()
     }
 
     fn get_devinfo(&self) -> &DeviceInfo {

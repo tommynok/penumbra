@@ -7,6 +7,7 @@ mod macros;
 mod cmds;
 mod da_protocol;
 mod flash;
+mod patch;
 mod storage;
 mod xml_lib;
 pub use xml_lib::Xml;
