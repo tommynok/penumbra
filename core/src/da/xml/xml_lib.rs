@@ -4,7 +4,7 @@
 */
 use std::sync::Arc;
 
-use log::{debug, info};
+use log::{debug, info, warn};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufWriter};
 use tokio::time::{Duration, timeout};
 
@@ -25,6 +25,7 @@ use crate::da::xml::cmds::{
     XmlCommand,
     create_cmd,
 };
+use crate::da::xml::exts::boot_extensions;
 use crate::da::xml::storage::detect_storage;
 use crate::da::{DA, DAProtocol};
 use crate::error::{Error, Result, XmlError, XmlErrorKind};
@@ -423,5 +424,15 @@ impl Xml {
         writer.flush().await?;
 
         Ok(String::from_utf8_lossy(&buffer).into_owned())
+    }
+
+    pub(super) async fn boot_extensions(&mut self) -> Result<bool> {
+        if self.using_exts {
+            warn!("DA extensions already in use, skipping re-upload");
+            return Ok(true);
+        }
+        info!("Booting DA extensions...");
+        self.using_exts = boot_extensions(self).await?;
+        Ok(true)
     }
 }

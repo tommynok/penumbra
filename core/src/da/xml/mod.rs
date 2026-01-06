@@ -6,6 +6,7 @@
 mod macros;
 mod cmds;
 mod da_protocol;
+mod exts;
 mod flash;
 mod patch;
 mod storage;
