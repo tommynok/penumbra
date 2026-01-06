@@ -7,6 +7,7 @@ mod macros;
 mod app;
 mod cli;
 mod components;
+mod config;
 mod error;
 mod logger;
 mod pages;

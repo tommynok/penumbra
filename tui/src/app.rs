@@ -14,6 +14,7 @@ use ratatui::{DefaultTerminal, Frame};
 use crate::cli::CliArgs;
 use crate::components::dialog::{Dialog, DialogBuilder};
 use crate::pages::{DevicePage, Page, WelcomePage};
+use crate::config::AntumbraConfig;
 
 #[derive(PartialEq, Clone, Copy, Default)]
 pub enum AppPage {
