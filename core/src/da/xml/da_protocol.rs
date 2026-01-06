@@ -23,7 +23,7 @@ use crate::da::xml::cmds::{
     NotifyInitHw,
     XmlCmdLifetime,
 };
-use crate::da::xml::flash;
+use crate::da::xml::sec::{parse_seccfg, write_seccfg};
 use crate::da::xml::{exts, flash, patch};
 use crate::da::{DA, DAEntryRegion, Xml};
 use crate::error::{Error, Result};
@@ -252,8 +252,18 @@ impl DAProtocol for Xml {
         partitions
     }
 
-    async fn set_seccfg_lock_state(&mut self, _locked: LockFlag) -> Option<Vec<u8>> {
-        Some(Vec::new())
+    async fn set_seccfg_lock_state(&mut self, locked: LockFlag) -> Option<Vec<u8>> {
+        let seccfg = parse_seccfg(self).await;
+        if seccfg.is_none() {
+            error!("[Penumbra] Failed to parse seccfg, cannot set lock state");
+            return None;
+        }
+
+        let mut seccfg = seccfg.unwrap();
+        seccfg.set_lock_state(locked);
+        write_seccfg(self, &mut seccfg).await
+    }
+
     }
 
     fn patch_da(&mut self) -> Option<DA> {

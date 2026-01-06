@@ -9,6 +9,7 @@ mod da_protocol;
 mod exts;
 mod flash;
 mod patch;
+mod sec;
 mod storage;
 mod xml_lib;
 pub use xml_lib::Xml;
