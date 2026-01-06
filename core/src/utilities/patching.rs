@@ -130,3 +130,30 @@ pub fn contains_bytes(data: &[u8], pattern: &[u8]) -> usize {
 
     HEX_NOT_FOUND
 }
+
+pub fn patch_string(data: &mut [u8], original: &str, new: &str) {
+    if original.is_empty() || new.len() > original.len() {
+        return;
+    }
+
+    let original_bytes = original.as_bytes();
+    let new_bytes = new.as_bytes();
+    let padding = original_bytes.len() - new_bytes.len();
+
+    let mut offset = 0;
+    while offset <= data.len().saturating_sub(original_bytes.len()) {
+        let pos = contains_bytes(&data[offset..], original_bytes);
+        if pos == HEX_NOT_FOUND {
+            break;
+        }
+
+        let pos = offset + pos;
+        data[pos..pos + new_bytes.len()].copy_from_slice(new_bytes);
+
+        for i in 0..padding {
+            data[pos + new_bytes.len() + i] = 0x00;
+        }
+
+        offset = pos + original_bytes.len();
+    }
+}
