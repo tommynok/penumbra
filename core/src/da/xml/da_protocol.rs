@@ -246,15 +246,21 @@ impl DAProtocol for Xml {
         let storage_type = storage.kind();
         let pl_part1 = storage.get_pl_part1();
         let pl_part2 = storage.get_pl_part2();
+        let user_part = storage.get_user_part();
         let pl1_size = storage.get_pl1_size() as usize;
         let pl2_size = storage.get_pl2_size() as usize;
+        let user_size = storage.get_user_size() as usize;
+        let gpt_size = 32 * 1024; // TODO: Change this when adding NAND support and PMT
 
         let mut partitions = Vec::<Partition>::new();
 
         let preloader = Partition::new("preloader", pl1_size, 0, pl_part1);
         let preloader_backup = Partition::new("preloader_backup", pl2_size, 0, pl_part2);
+        let pgpt = Partition::new("PGPT", gpt_size, 0, user_part);
+        let sgpt = Partition::new("SGPT", gpt_size, user_size as u64 - gpt_size as u64, user_part);
         partitions.push(preloader);
         partitions.push(preloader_backup);
+        partitions.push(pgpt);
 
         let mut progress = |_, _| {};
         let mut pgpt_data = Vec::new();
@@ -263,6 +269,7 @@ impl DAProtocol for Xml {
 
         let gpt_parts = parse_gpt(&pgpt_data, storage_type).unwrap_or_default();
         partitions.extend(gpt_parts);
+        partitions.push(sgpt);
 
         partitions
     }
