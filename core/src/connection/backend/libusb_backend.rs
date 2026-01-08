@@ -322,6 +322,11 @@ impl MTKPort for UsbMTKPort {
             let expected = !startcmd[i] & 0xFF;
             let handshake_byte = response[n - 1];
 
+            if handshake_byte == startcmd[0] {
+                // Already handshaken, return early
+                break;
+            }
+
             if handshake_byte == expected {
                 i += 1;
             } else {
