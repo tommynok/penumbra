@@ -240,6 +240,10 @@ where
     // it will always write the whole partition with the data provided.
     let chunk_size = get_write_packet_length(xflash).await?;
 
+    xflash.send_cmd(Cmd::DeviceCtrl).await?;
+    xflash.send_cmd(Cmd::StartDlInfo).await?;
+    status_ok!(xflash);
+
     xflash.send_cmd(Cmd::Download).await?;
     xflash.send_data(&[part_name.as_bytes(), &size.to_le_bytes()]).await?;
 
@@ -269,6 +273,11 @@ where
     }
 
     status_ok!(xflash);
+
+    xflash.send_cmd(Cmd::DeviceCtrl).await?;
+    xflash.send_cmd(Cmd::EndDlInfo).await?;
+    status_ok!(xflash);
+
     debug!("Download completed, 0x{:X} bytes sent.", size);
 
     Ok(())
