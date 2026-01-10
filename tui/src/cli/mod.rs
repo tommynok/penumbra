@@ -57,6 +57,7 @@ mtk_commands! {
     Peek(PeekArgs),
     Shutdown(ShutdownArgs),
     Reboot(RebootArgs),
+    XFlash(XFlashArgs),
 }
 
 #[async_trait]

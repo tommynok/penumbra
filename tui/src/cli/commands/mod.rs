@@ -14,6 +14,7 @@ pub mod seccfg;
 pub mod shutdown;
 pub mod upload;
 pub mod write;
+pub mod xflash;
 
 pub use download::DownloadArgs;
 pub use erase::EraseArgs;
@@ -27,3 +28,4 @@ pub use seccfg::SeccfgArgs;
 pub use shutdown::ShutdownArgs;
 pub use upload::UploadArgs;
 pub use write::WriteArgs;
+pub use xflash::XFlashArgs;
