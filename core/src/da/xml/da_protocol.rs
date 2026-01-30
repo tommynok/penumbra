@@ -33,8 +33,7 @@ use crate::da::{DA, DAEntryRegion, Xml};
 use crate::error::{Error, Result};
 use crate::exploit;
 #[cfg(not(feature = "no_exploits"))]
-use crate::exploit::Carbonara;
-use crate::exploit::Exploit;
+use crate::exploit::{Carbonara, Exploit, HeapBait};
 
 #[async_trait]
 impl DAProtocol for Xml {
@@ -63,6 +62,8 @@ impl DAProtocol for Xml {
         }
 
         info!("Successfully uploaded and booted to XML DA2");
+
+        exploit!(HeapBait, self);
 
         // These may fail on some devices — safe to ignore
         xmlcmd_e!(self, HostSupportedCommands, HOST_CMDS).ok();
