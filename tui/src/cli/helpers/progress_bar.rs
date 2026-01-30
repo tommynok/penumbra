@@ -13,13 +13,13 @@ pub struct AntumbraProgress {
 
 impl AntumbraProgress {
     pub fn new(total_size: u64) -> Self {
-        let prefix = format!("{} {}", LOGGER_PREIX.bold().yellow(), INFO_SYMBOL.yellow());
+        let prefix = format!("{} {}", LOGGER_PREIX.bold().purple(), INFO_SYMBOL.purple());
 
         let pb = ProgressBar::new(total_size);
         pb.set_style(
             ProgressStyle::with_template(
                 &format!(
-                     "{}  [{{bar:40.yellow/red}}] {{bytes}}/{{total_bytes}} ({{elapsed}} / ETA: {{eta}}, {{bytes_per_sec}}) {{msg}}",
+                     "{}  [{{bar:40.white/red}}] {{bytes}}/{{total_bytes}} ({{elapsed}} / ETA: {{eta}}, {{bytes_per_sec}}) {{msg}}",
                      prefix
                  )
             )

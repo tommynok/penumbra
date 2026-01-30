@@ -48,9 +48,9 @@ pub fn init_logger(tui_mode: bool, verbose: bool) {
             }
             Ok(())
         } else {
-            let prefix = LOGGER_PREIX.bold().yellow();
+            let prefix = LOGGER_PREIX.bold().purple();
             let message = match record.level() {
-                Level::Info => format!("{}  {}", INFO_SYMBOL.yellow(), record.args()).white(),
+                Level::Info => format!("{}  {}", INFO_SYMBOL.purple(), record.args()).white(),
                 Level::Warn => format!("{}  {}", WARN_SYMBOL.yellow(), record.args()).yellow(),
                 Level::Error => format!("{}  {}", ERROR_SYMBOL.red(), record.args()).red().bold(),
                 _ => return Ok(()),
