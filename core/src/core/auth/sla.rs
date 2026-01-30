@@ -16,8 +16,15 @@ pub enum SignPurpose {
     DaSla,
 }
 
+pub struct SignData {
+    pub rnd: Vec<u8>,
+    pub soc_id: Vec<u8>,
+    pub hrid: Vec<u8>,
+    pub raw: Vec<u8>,
+}
+
 pub struct SignRequest {
-    pub data: Vec<u8>,
+    pub data: SignData,
     pub purpose: SignPurpose,
     pub pubk_mod: Vec<u8>,
 }

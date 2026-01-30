@@ -8,4 +8,4 @@ mod keys;
 pub mod local_keyring;
 mod sla;
 
-pub use sla::{AuthManager, SignPurpose, SignRequest, Signer};
+pub use sla::{AuthManager, SignData, SignPurpose, SignRequest, Signer};

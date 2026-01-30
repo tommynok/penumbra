@@ -27,7 +27,7 @@ impl Signer for LocalKeyring {
             .find(|k| contains_bytes(&req.pubk_mod, &k.n().to_bytes_be()) != HEX_NOT_FOUND)
             .ok_or_else(|| Error::penumbra("No matching key found"))?;
 
-        let signature = rsa_oaep_encrypt(&req.data, &key.n, &key.d);
+        let signature = rsa_oaep_encrypt(&req.data.rnd, &key.n, &key.d);
         Ok(signature)
     }
 

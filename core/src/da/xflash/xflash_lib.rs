@@ -7,7 +7,7 @@ use std::sync::Arc;
 use log::{debug, error, info, warn};
 
 use crate::connection::Connection;
-use crate::core::auth::{AuthManager, SignPurpose, SignRequest};
+use crate::core::auth::{AuthManager, SignData, SignPurpose, SignRequest};
 use crate::core::devinfo::DeviceInfo;
 use crate::core::emi::extract_emi_settings;
 use crate::core::storage::Storage;
@@ -238,14 +238,22 @@ impl XFlash {
         let firmware_info = self.devctrl(Cmd::GetDevFwInfo, None).await?;
         debug!("Firmware Info: {:02X?}", firmware_info);
         let rnd = &firmware_info[4..4 + 0x10];
+        let hrid = &firmware_info[4 + 0x10..4 + 0x10 + 16];
+        let soc_id = &firmware_info[4 + 0x10 + 16..4 + 0x10 + 16 + 32];
         let da2_data = match self.da.get_da2() {
             Some(da2) => da2.data.clone(),
             None => Vec::new(),
         };
 
+        let sign_data = SignData {
+            rnd: rnd.to_vec(),
+            hrid: hrid.to_vec(),
+            soc_id: soc_id.to_vec(),
+            raw: firmware_info.to_vec(),
+        };
         let auth = AuthManager::get();
         let sign_req =
-            SignRequest { data: rnd.to_vec(), purpose: SignPurpose::DaSla, pubk_mod: da2_data };
+            SignRequest { data: sign_data, purpose: SignPurpose::DaSla, pubk_mod: da2_data };
 
         if auth.can_sign(&sign_req) {
             info!("Found signer for DA SLA!");
