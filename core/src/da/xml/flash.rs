@@ -13,6 +13,7 @@ use crate::da::xml::cmds::{
     WritePartition,
     XmlCmdLifetime,
 };
+use crate::da::xml::{EraseFlash, ReadFlash, WriteFlash};
 use crate::error::Result;
 
 pub async fn upload<F, W>(
@@ -27,6 +28,25 @@ where
 {
     xmlcmd!(xml, ReadPartition, &part_name, &part_name)?;
 
+    xml.upload_file(&mut writer, &mut progress).await?;
+    xml.lifetime_ack(XmlCmdLifetime::CmdEnd).await?;
+
+    Ok(())
+}
+
+pub async fn read_flash<F, W>(
+    xml: &mut Xml,
+    addr: u64,
+    size: usize,
+    section: PartitionKind,
+    mut writer: W,
+    mut progress: F,
+) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+    F: FnMut(usize, usize) + Send,
+{
+    xmlcmd!(xml, ReadFlash, section.as_str(), section.as_str(), size, addr)?;
     xml.upload_file(&mut writer, &mut progress).await?;
     xml.lifetime_ack(XmlCmdLifetime::CmdEnd).await?;
 
@@ -64,6 +84,28 @@ where
     Ok(())
 }
 
+pub async fn write_flash<F, R>(
+    xml: &mut Xml,
+    addr: u64,
+    size: usize,
+    section: PartitionKind,
+    mut reader: R,
+    mut progress: F,
+) -> Result<()>
+where
+    R: AsyncRead + Unpin,
+    F: FnMut(usize, usize) + Send,
+{
+    xmlcmd!(xml, WriteFlash, section.as_str(), size, addr)?;
+
+    xml.file_system_op(FileSystemOp::FileSize(size)).await?;
+    xml.progress_report(&mut |_, _| {}).await?; // Pre-erase
+    xml.download_file(size, &mut reader, &mut progress).await?;
+    xml.lifetime_ack(XmlCmdLifetime::CmdEnd).await?;
+
+    Ok(())
+}
+
 pub async fn format<F>(xml: &mut Xml, part_name: String, mut progress: F) -> Result<()>
 where
     F: FnMut(usize, usize) + Send,
@@ -77,14 +119,18 @@ where
 }
 
 pub async fn erase_flash<F>(
-    _xml: &mut Xml,
-    _addr: u64,
-    _size: usize,
-    _section: PartitionKind,
-    mut _progress: F,
+    xml: &mut Xml,
+    addr: u64,
+    size: usize,
+    section: PartitionKind,
+    mut progress: F,
 ) -> Result<()>
 where
     F: FnMut(usize, usize) + Send,
 {
-    todo!()
+    xmlcmd!(xml, EraseFlash, section.as_str(), size, addr)?;
+    xml.progress_report(&mut progress).await?;
+    xml.lifetime_ack(XmlCmdLifetime::CmdEnd).await?;
+
+    Ok(())
 }

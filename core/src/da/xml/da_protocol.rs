@@ -145,24 +145,24 @@ impl DAProtocol for Xml {
 
     async fn read_flash(
         &mut self,
-        _addr: u64,
-        _size: usize,
-        _section: PartitionKind,
-        _progress: &mut (dyn FnMut(usize, usize) + Send),
-        _writer: &mut (dyn AsyncWrite + Unpin + Send),
+        addr: u64,
+        size: usize,
+        section: PartitionKind,
+        progress: &mut (dyn FnMut(usize, usize) + Send),
+        writer: &mut (dyn AsyncWrite + Unpin + Send),
     ) -> Result<()> {
-        todo!()
+        flash::read_flash(self, addr, size, section, writer, progress).await
     }
 
     async fn write_flash(
         &mut self,
-        _addr: u64,
-        _size: usize,
-        _reader: &mut (dyn AsyncRead + Unpin + Send),
-        _section: PartitionKind,
-        _progress: &mut (dyn FnMut(usize, usize) + Send),
+        addr: u64,
+        size: usize,
+        reader: &mut (dyn AsyncRead + Unpin + Send),
+        section: PartitionKind,
+        progress: &mut (dyn FnMut(usize, usize) + Send),
     ) -> Result<()> {
-        todo!()
+        flash::write_flash(self, addr, size, section, reader, progress).await
     }
 
     async fn erase_flash(

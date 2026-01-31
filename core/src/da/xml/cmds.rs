@@ -114,6 +114,19 @@ pub struct ReadPartition {
 }
 
 #[derive(XmlCommand)]
+pub struct ReadFlash {
+    #[xml(tag = "partition")]
+    partition: String,
+    #[allow(dead_code)]
+    #[xml(tag = "target_file", fmt = "{partition}")]
+    target_file: String,
+    #[xml(tag = "length", fmt = "0x{length:X}")]
+    length: usize,
+    #[xml(tag = "offset", fmt = "0x{offset:X}")]
+    offset: u64,
+}
+
+#[derive(XmlCommand)]
 pub struct WritePartition {
     #[xml(tag = "partition")]
     partition: String,
@@ -123,9 +136,29 @@ pub struct WritePartition {
 }
 
 #[derive(XmlCommand)]
+pub struct WriteFlash {
+    #[xml(tag = "partition")]
+    partition: String,
+    #[xml(tag = "source_file", fmt = "MEM:\\0x0:0x{length:X}")]
+    length: usize,
+    #[xml(tag = "offset", fmt = "0x{offset:X}")]
+    offset: u64,
+}
+
+#[derive(XmlCommand)]
 pub struct ErasePartition {
     #[xml(tag = "partition")]
     partition: String,
+}
+
+#[derive(XmlCommand)]
+pub struct EraseFlash {
+    #[xml(tag = "partition")]
+    section: String,
+    #[xml(tag = "length", fmt = "0x{length:X}")]
+    length: usize,
+    #[xml(tag = "offset", fmt = "0x{offset:X}")]
+    offset: u64,
 }
 
 #[derive(XmlCommand)]
