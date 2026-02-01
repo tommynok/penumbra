@@ -48,3 +48,6 @@ tui = [
     "crossterm",
     "ratatui-explorer",
 ]
+
+[build-dependencies]
+winresource = "0.1.30"

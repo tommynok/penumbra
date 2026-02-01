@@ -10,7 +10,7 @@ edition = "2024"
 version = "0.1.0"
 license = "AGPL-3.0-or-later"
 authors = ["Shomy <shomy@shomy.is-a.dev>"]
-homepage = "https://shomy.is-a.dev/penumbra"
+homepage = "https://penumbra.itssho.my"
 repository = "https://github.com/shomykohai/penumbra"
 
 [profile.release]
