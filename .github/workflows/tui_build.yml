@@ -1,17 +1,17 @@
-name: Build TUI Version
-on: workflow_dispatch # Запуск вручную кнопкой
+name: Build Antumbra TUI
+on: workflow_dispatch
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-windows:
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev pkg-config
-      - name: Build
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build with TUI
         run: cargo build --release --features tui
-      - name: Upload result
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: antumbra-tui-linux
-          path: target/release/antumbra
+          name: antumbra-windows-tui
+          path: target/release/antumbra.exe
