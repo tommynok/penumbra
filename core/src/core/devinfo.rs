@@ -1,110 +1,132 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2026 Shomy
 */
-use std::sync::Arc;
 
-use tokio::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
-use crate::core::storage::{Partition, Storage};
+use crate::core::bootctrl::BootControl;
+use crate::core::chip::{ChipInfo, UNKNOWN_CHIP};
+use crate::core::storage::{Partition, StorageKind};
 
-/// Safe wrapper around device information with async read/write access.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct DeviceInfo {
-    inner: Arc<RwLock<DevInfoData>>,
+    data: Arc<RwLock<DevInfoData>>,
+    chip: Arc<RwLock<&'static ChipInfo>>,
+    storage: Arc<RwLock<Option<StorageKind>>>,
 }
 
 /// Struct holding device information data.
-/// This should not be accessed directly, instead use the `DeviceInfo` wrapper.
-#[derive(Clone, Default)]
+#[derive(Default, Clone)]
 pub struct DevInfoData {
-    pub chipset: String,
-    pub soc_id: Vec<u8>,
-    pub meid: Vec<u8>,
+    pub soc_id: [u8; 32],
+    pub meid: [u8; 16],
     pub hw_code: u16,
     pub partitions: Vec<Partition>,
-    pub storage: Option<Arc<dyn Storage + Send + Sync>>,
+    pub bootctrl: Option<BootControl>,
     pub target_config: u32,
 }
 
 impl DeviceInfo {
     pub fn new() -> Self {
-        DeviceInfo { inner: Arc::new(RwLock::new(DevInfoData::default())) }
+        Self::default()
     }
 
-    fn inner(&self) -> &Arc<RwLock<DevInfoData>> {
-        &self.inner
+    pub fn get_data(&self) -> DevInfoData {
+        self.data.read().unwrap().clone()
     }
 
-    pub async fn get_data(&self) -> DevInfoData {
-        self.inner().read().await.clone()
+    pub fn set_data(&self, data: DevInfoData) {
+        *self.data.write().unwrap() = data;
     }
 
-    pub async fn set_data(&self, data: DevInfoData) {
-        let mut write_guard = self.inner().write().await;
-        *write_guard = data;
+    pub fn chip(&self) -> &'static ChipInfo {
+        *self.chip.read().unwrap()
     }
 
-    pub async fn chipset(&self) -> String {
-        self.inner().read().await.chipset.clone()
+    pub fn set_chip(&self, chip: &'static ChipInfo) {
+        *self.chip.write().unwrap() = chip;
+    }
+}
+
+impl Default for DeviceInfo {
+    fn default() -> Self {
+        Self {
+            data: Arc::new(RwLock::new(DevInfoData::default())),
+            chip: Arc::new(RwLock::new(&UNKNOWN_CHIP)),
+            storage: Arc::new(RwLock::new(None)),
+        }
+    }
+}
+
+impl DeviceInfo {
+    pub fn soc_id(&self) -> [u8; 32] {
+        self.data.read().unwrap().soc_id
     }
 
-    pub async fn soc_id(&self) -> Vec<u8> {
-        self.inner().read().await.soc_id.clone()
+    pub fn meid(&self) -> [u8; 16] {
+        self.data.read().unwrap().meid
     }
 
-    pub async fn meid(&self) -> Vec<u8> {
-        self.inner().read().await.meid.clone()
+    pub fn hw_code(&self) -> u16 {
+        self.data.read().unwrap().hw_code
     }
 
-    pub async fn hw_code(&self) -> u16 {
-        self.inner().read().await.hw_code
+    pub fn partitions(&self) -> Vec<Partition> {
+        self.data.read().unwrap().partitions.clone()
     }
 
-    pub async fn partitions(&self) -> Vec<Partition> {
-        self.inner().read().await.partitions.clone()
+    pub fn storage(&self) -> Option<StorageKind> {
+        self.storage.read().unwrap().clone()
     }
 
-    pub async fn storage(&self) -> Option<Arc<dyn Storage + Send + Sync>> {
-        self.inner().read().await.storage.clone()
+    pub fn set_storage(&self, storage: StorageKind) {
+        *self.storage.write().unwrap() = Some(storage);
     }
 
-    pub async fn set_storage(&self, storage: Arc<dyn Storage + Send + Sync>) {
-        let mut write_guard = self.inner().write().await;
-        write_guard.storage = Some(storage);
+    pub fn get_partition(&self, name: &str) -> Option<Partition> {
+        let data = self.data.read().unwrap();
+
+        if let Some(p) = data.partitions.iter().find(|p| p.name.eq_ignore_ascii_case(name)) {
+            return Some(p.clone());
+        }
+
+        let suffix = self.get_bootctrl()?.get_current_suffix().map(|s| s.to_string())?;
+
+        let suffixed_name = format!("{name}{suffix}");
+
+        data.partitions.iter().find(|p| p.name.eq_ignore_ascii_case(&suffixed_name)).cloned()
     }
 
-    pub async fn get_partition(&self, name: &str) -> Option<Partition> {
-        let partitions = self.inner().read().await.partitions.clone();
-        partitions.into_iter().find(|p| p.name.eq_ignore_ascii_case(name))
+    pub fn set_partitions(&self, partitions: Vec<Partition>) {
+        self.data.write().unwrap().partitions = partitions;
     }
 
-    pub async fn set_partitions(&self, partitions: Vec<Partition>) {
-        let mut write_guard = self.inner().write().await;
-        write_guard.partitions = partitions;
+    pub fn get_bootctrl(&self) -> Option<BootControl> {
+        self.data.read().unwrap().bootctrl.clone()
     }
 
-    pub async fn target_config(&self) -> u32 {
-        self.inner().read().await.target_config
+    pub fn set_bootctrl(&self, bctrl: BootControl) {
+        self.data.write().unwrap().bootctrl = Some(bctrl)
     }
 
-    pub async fn set_target_config(&self, cfg: u32) {
-        let mut write_guard = self.inner().write().await;
-        write_guard.target_config = cfg;
+    pub fn target_config(&self) -> u32 {
+        self.data.read().unwrap().target_config
     }
 
-    pub async fn sbc_enabled(&self) -> bool {
-        let target_config = self.inner().read().await.target_config;
-        (target_config & 0x1) != 0
+    pub fn set_target_config(&self, cfg: u32) {
+        self.data.write().unwrap().target_config = cfg;
     }
 
-    pub async fn sla_enabled(&self) -> bool {
-        let target_config = self.inner().read().await.target_config;
-        (target_config & 0x2) != 0
+    pub fn sbc_enabled(&self) -> bool {
+        (self.data.read().unwrap().target_config & 0x1) != 0
     }
 
-    pub async fn daa_enabled(&self) -> bool {
-        let target_config = self.inner().read().await.target_config;
-        (target_config & 0x4) != 0
+    pub fn sla_enabled(&self) -> bool {
+        (self.data.read().unwrap().target_config & 0x2) != 0
+    }
+
+    pub fn daa_enabled(&self) -> bool {
+        (self.data.read().unwrap().target_config & 0x4) != 0
     }
 }

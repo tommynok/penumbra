@@ -1,25 +1,20 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
-use std::path::PathBuf;
 
 use anyhow::Result;
-use async_trait::async_trait;
 use clap::Args;
 use human_bytes::human_bytes;
 use log::info;
 use penumbra::Device;
 
-use crate::cli::MtkCommand;
-use crate::cli::common::{CONN_DA, CommandMetadata, DaArgs};
+use crate::cli::DeviceCommand;
+use crate::cli::common::{CONN_DA, CommandMetadata};
 use crate::cli::state::PersistedDeviceState;
 
 #[derive(Args, Debug)]
-pub struct PgptArgs {
-    #[command(flatten)]
-    pub da: DaArgs,
-}
+pub struct PgptArgs;
 
 impl CommandMetadata for PgptArgs {
     fn visible_aliases() -> &'static [&'static str] {
@@ -35,35 +30,27 @@ impl CommandMetadata for PgptArgs {
     }
 }
 
-#[async_trait]
-impl MtkCommand for PgptArgs {
-    async fn run(&self, dev: &mut Device, state: &mut PersistedDeviceState) -> Result<()> {
-        dev.enter_da_mode().await?;
+impl DeviceCommand for PgptArgs {
+    fn run(&self, dev: &mut Device, state: &mut PersistedDeviceState) -> Result<()> {
+        dev.enter_da_mode()?;
 
         state.connection_type = CONN_DA;
         state.flash_mode = 1;
 
-        let partitions = dev.dev_info.partitions().await;
+        let partitions = dev.dev_info.partitions();
 
         info!("Partition Table:");
         for p in partitions {
             info!(
-                "Name: {:<15} \t Addr: 0x{:08X} \t Size: 0x{:08X} ({})",
+                "Name: {:<25} \t Addr: 0x{:016X} \t Size: 0x{:016X} {:<12} \t Section: {}",
                 p.name,
                 p.address,
                 p.size,
-                human_bytes(p.size as f64)
+                format!("({})", human_bytes(p.size as f64)),
+                p.kind.as_str()
             );
         }
 
         Ok(())
-    }
-
-    fn da(&self) -> Option<&PathBuf> {
-        Some(&self.da.da_file)
-    }
-
-    fn pl(&self) -> Option<&PathBuf> {
-        self.da.preloader_file.as_ref()
     }
 }

@@ -1,8 +1,7 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
-use std::sync::PoisonError;
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
@@ -11,6 +10,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("Preloader/Brom error: {0}")]
+    BrPl(#[from] BrPlError),
     /// An error related to XFlash protocol (and its error codes)
     #[error("XFlash error: {0}")]
     XFlash(#[from] XFlashError),
@@ -26,6 +27,12 @@ pub enum Error {
     /// In particular with the connection backends
     #[error("I/O Error: {0}")]
     Io(String),
+    /// Error specific related to timeouts.
+    /// Use this preferrably over the generic Io error when
+    /// dealing with timeouts, so that we can handle them
+    /// separately.
+    #[error("Timeout")]
+    Timeout,
     /// Generic error that happens in Penumbra, can
     /// be used for anything
     #[error("Penumbra Error: {0}")]
@@ -36,6 +43,20 @@ pub enum Error {
     /// is there (e.g. XFlash)
     #[error("{ctx}: Status is 0x{status:X}")]
     Status { ctx: String, status: u32 },
+    #[error(transparent)]
+    Read(#[from] wincode::ReadError),
+    #[error(transparent)]
+    Write(#[from] wincode::WriteError),
+    #[error(transparent)]
+    HexDecode(#[from] hex::FromHexError),
+    #[error("Parse error: {0}")]
+    ParseError(String),
+    #[error("String parse error: {0}")]
+    StringParseError(String),
+    #[error("Invalid UTF-8 string")]
+    InvalidUtf8,
+    #[error("Invalid UTF-16 string")]
+    InvalidUtf16,
 }
 
 impl Error {
@@ -62,15 +83,10 @@ impl From<std::io::Error> for Error {
     }
 }
 
+#[cfg(feature = "nusb")]
 impl From<nusb::Error> for Error {
     fn from(err: nusb::Error) -> Self {
         Error::io(err.to_string())
-    }
-}
-
-impl<T> From<PoisonError<T>> for Error {
-    fn from(e: PoisonError<T>) -> Self {
-        Error::penumbra(format!("Lock poisoned: {}", e))
     }
 }
 
@@ -504,6 +520,26 @@ pub enum XFlashErrorKind {
     #[error("DA: Exceeded maximum allowed number")]
     DaExceedMaxNum = 0xC0070005,
 
+    // Extensions
+    #[error("Extensions: Download ack is not OK")]
+    ExtensionsDownloadAckNotOk = 0xC00E0001,
+    #[error("Extensions: Upload ack is not OK")]
+    ExtensionsUploadAckNotOk = 0xC00E0002,
+    #[error("Extensions: SEJ AES data length exceed max length")]
+    ExtensionsSejExceedMaxLen = 0xC00E0003,
+    #[error("Extensions: Malloc failed")]
+    ExtensionsMallocFailed = 0xC00E0004,
+    #[error("Extensions: RPMB not initialized")]
+    ExtensionsRpmbNotInit = 0xC00E0005,
+    #[error("Extensions: RPMB read failed")]
+    ExtensionsRpmbReadFailed = 0xC00E0006,
+    #[error("Extensions: RPMB write failed")]
+    ExtensionsRpmbWriteFailed = 0xC00E0007,
+    #[error("Extensions: RPMB key invalid.")]
+    ExtensionsRpmbKeyInvalid = 0xC00E0008,
+    #[error("Extensions: RPMB support is not available on this storage type.")]
+    ExtensionsRpmbStorageNotSupported = 0xC00E0009,
+
     #[error("Unknown error")]
     Unknown = 0xFFFFFFFF,
 }
@@ -551,5 +587,40 @@ impl XmlError {
             "ERR!CANCEL" => XmlError::new("Cancelled", XmlErrorKind::Cancel),
             _ => XmlError::new(msg, XmlErrorKind::UnsupportedCmd),
         }
+    }
+}
+
+// BROM / Preloader errors
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Error, IntoPrimitive, TryFromPrimitive)]
+#[repr(u16)]
+pub enum BrPlErrorKind {
+    #[error("SEC: SLA challenge not completed. SLA must be completed before any proceeding")]
+    SlaNotPassed = 0x1D0D,
+    #[error("SEC: This command can be executed only once")]
+    CmdExecMoreThanOnce = 0x1D0C,
+    #[error("SEC: DA list max entries reached")]
+    DaListMaxEntriesReached = 0x1D10,
+    #[error("SEC: DAA signature error")]
+    DaaSigError = 0x7015,
+    #[error("SEC: An auth file is needed to continue")]
+    ToolAuthIsNull = 0x7017,
+    #[error("SEC: DAA signature verification failed")]
+    DaaSigVfyFailed = 0x7024,
+
+    #[error("Unknown error")]
+    Unknown = 0xFFFF,
+}
+
+#[derive(Debug, Error)]
+#[error("{kind} (code: {code:#06x})")]
+pub struct BrPlError {
+    pub kind: BrPlErrorKind,
+    pub code: u16,
+}
+
+impl BrPlError {
+    pub fn from_code(code: u16) -> Self {
+        let kind = BrPlErrorKind::try_from(code).unwrap_or(BrPlErrorKind::Unknown);
+        Self { kind, code }
     }
 }

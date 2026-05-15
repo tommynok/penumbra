@@ -1,8 +1,7 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
-use async_trait::async_trait;
 use num_bigint::BigUint;
 
 use crate::core::auth::keys::SLA_KEYS;
@@ -18,9 +17,8 @@ pub struct LocalKeyring {
     keys: Vec<RsaPrivateKey>,
 }
 
-#[async_trait]
 impl Signer for LocalKeyring {
-    async fn sign(&self, req: &SignRequest) -> Result<Vec<u8>> {
+    fn sign(&self, req: &SignRequest) -> Result<Vec<u8>> {
         let key = self
             .keys
             .iter()
@@ -31,10 +29,12 @@ impl Signer for LocalKeyring {
         Ok(signature)
     }
 
-    fn can_sign(&self, req: &SignRequest) -> bool {
-        self.keys
-            .iter()
-            .any(|k| contains_bytes(&req.pubk_mod, &k.n().to_bytes_be()) != HEX_NOT_FOUND)
+    fn can_handle(&self, pubk_mod: &[u8]) -> bool {
+        self.keys.iter().any(|k| contains_bytes(pubk_mod, &k.n().to_bytes_be()) != HEX_NOT_FOUND)
+    }
+
+    fn is_authorized(&self, _req: &SignRequest) -> bool {
+        true
     }
 }
 

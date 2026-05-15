@@ -1,6 +1,6 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -9,12 +9,13 @@ use tokio::fs::{metadata, read, remove_file, write};
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct PersistedDeviceState {
     pub da_file_path: Option<String>,
-    pub soc_id: Vec<u8>,
-    pub meid: Vec<u8>,
+    pub soc_id: [u8; 32],
+    pub meid: [u8; 16],
     pub hw_code: u16,
     pub target_config: u32,
     pub connection_type: u8,
     pub flash_mode: u8,
+    pub usb_log: bool,
 }
 
 impl PersistedDeviceState {

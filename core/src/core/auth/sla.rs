@@ -1,10 +1,8 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
 use std::sync::{Arc, OnceLock, RwLock};
-
-use async_trait::async_trait;
 
 #[cfg(not(feature = "no_localslakeyring"))]
 use crate::core::auth::local_keyring::LocalKeyring;
@@ -29,10 +27,15 @@ pub struct SignRequest {
     pub pubk_mod: Vec<u8>,
 }
 
-#[async_trait]
 pub trait Signer: Send + Sync {
-    fn can_sign(&self, req: &SignRequest) -> bool;
-    async fn sign(&self, req: &SignRequest) -> Result<Vec<u8>>;
+    /// Whether the signer can handle a a sign request,
+    /// for example, if it matches the public key
+    fn can_handle(&self, pubk_mod: &[u8]) -> bool;
+    /// Whether the signer authorizes a sign request to be signed
+    /// at all. For example, if a device is banned or restricted.
+    fn is_authorized(&self, req: &SignRequest) -> bool;
+    /// Signs the SLA challenge and returns the signed data
+    fn sign(&self, req: &SignRequest) -> Result<Vec<u8>>;
 }
 
 pub struct AuthManager {
@@ -60,32 +63,41 @@ impl AuthManager {
 
     /// Registers a new signer to be available for signing requests.
     pub fn register_signer(&self, signer: Arc<dyn Signer>) -> Result<()> {
-        let mut signers = self.signers.write()?;
+        let mut signers = self.signers.write().unwrap();
         signers.push(signer);
 
         Ok(())
     }
 
     /// Return whether any of the registered signers can sign the given request.
-    pub fn can_sign(&self, req: &SignRequest) -> bool {
+    pub fn can_sign(&self, pubk: &[u8]) -> bool {
         let signers = match self.signers.read() {
             Ok(signers) => signers,
             Err(_) => return false,
         };
 
-        signers.iter().any(|signer| signer.can_sign(req))
+        for signer in signers.iter() {
+            if signer.can_handle(pubk) {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Signs the given request using the first capable signer.
-    pub async fn sign(&self, req: &SignRequest) -> Result<Vec<u8>> {
-        let signer = {
-            let list = self.signers.read()?;
-            list.iter().find(|s| s.can_sign(req)).cloned()
+    pub fn sign(&self, req: &SignRequest) -> Result<Vec<u8>> {
+        let signers = {
+            let list = self.signers.read().unwrap();
+            list.clone()
         };
 
-        match signer {
-            Some(s) => s.sign(req).await,
-            None => Err(Error::penumbra("Could not find any signer")),
+        for signer in signers {
+            if signer.can_handle(&req.pubk_mod) && signer.is_authorized(req) {
+                return signer.sign(req);
+            }
         }
+
+        Err(Error::penumbra("Could not find any signer"))
     }
 }

@@ -1,15 +1,16 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
-use async_trait::async_trait;
+
+use wincode::{Deserialize, SchemaRead, SchemaWrite};
 
 use crate::core::storage::{PartitionKind, Storage, StorageType};
 use crate::error::{Error, Result};
 use crate::utilities::xml::{get_tag, get_tag_usize};
 
 /// Represents eMMC storage information.
-#[derive(Debug)]
+#[derive(Debug, SchemaRead, SchemaWrite, Clone)]
 pub struct EmmcInfo {
     /// eMMC kind (EMMC or SDMMC)
     pub kind: u32,
@@ -32,9 +33,11 @@ pub struct EmmcInfo {
     /// Size of User section in bytes.
     pub user_size: u64,
     /// eMMC CID (Card Identification) register value.
-    pub cid: Vec<u8>,
+    pub cid: [u8; 16],
     /// eMMC firmware version.
-    pub fwver: u64,
+    pub fwver: [u8; 8],
+    /// Other fields
+    reserved: [u8; 8],
 }
 
 /// Represents eMMC partitions types.
@@ -80,12 +83,12 @@ impl EmmcPartition {
 }
 
 /// Represents eMMC storage device.
+#[derive(Debug, Clone)]
 pub struct EmmcStorage {
     /// eMMC storage information.
     pub info: EmmcInfo,
 }
 
-#[async_trait]
 impl Storage for EmmcStorage {
     fn kind(&self) -> StorageType {
         StorageType::Emmc
@@ -129,6 +132,10 @@ impl Storage for EmmcStorage {
     fn get_user_size(&self) -> u64 {
         self.info.user_size
     }
+
+    fn get_rpmb_size(&self) -> u64 {
+        self.info.rpmb_size
+    }
 }
 
 impl EmmcStorage {
@@ -137,43 +144,9 @@ impl EmmcStorage {
             return Err(Error::penumbra("Emmc response data too short"));
         }
 
-        let mut pos = 0;
-        let kind = u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap());
-        let block_size = u32::from_le_bytes(data[pos + 4..pos + 8].try_into().unwrap());
+        let storage = EmmcStorage { info: EmmcInfo::deserialize(data).unwrap() };
 
-        pos += 8;
-
-        let boot1_size = u64::from_le_bytes(data[pos..pos + 8].try_into().unwrap());
-        let boot2_size = u64::from_le_bytes(data[pos + 8..pos + 16].try_into().unwrap());
-        let rpmb_size = u64::from_le_bytes(data[pos + 16..pos + 24].try_into().unwrap());
-        let gp1_size = u64::from_le_bytes(data[pos + 24..pos + 32].try_into().unwrap());
-        let gp2_size = u64::from_le_bytes(data[pos + 32..pos + 40].try_into().unwrap());
-        let gp3_size = u64::from_le_bytes(data[pos + 40..pos + 48].try_into().unwrap());
-        let gp4_size = u64::from_le_bytes(data[pos + 48..pos + 56].try_into().unwrap());
-        let user_size = u64::from_le_bytes(data[pos + 56..pos + 64].try_into().unwrap());
-
-        pos += 64;
-        let cid = data[pos..pos + 16].to_vec();
-
-        pos += 16;
-        let fwver = u64::from_le_bytes(data[pos..pos + 8].try_into().unwrap());
-
-        Ok(EmmcStorage {
-            info: EmmcInfo {
-                kind,
-                block_size,
-                boot1_size,
-                boot2_size,
-                rpmb_size,
-                gp1_size,
-                gp2_size,
-                gp3_size,
-                gp4_size,
-                user_size,
-                cid,
-                fwver,
-            },
-        })
+        Ok(storage)
     }
 
     pub fn from_xml_response(xml: &str) -> Result<Self> {
@@ -189,7 +162,8 @@ impl EmmcStorage {
         let user_size = get_tag_usize(xml, "emmc/user_size")? as u64;
 
         let cid_str: String = get_tag(xml, "emmc/id")?;
-        let cid = hex::decode(cid_str).map_err(|_| Error::penumbra("Failed to decode EmmcCid"))?;
+        let mut cid = [0u8; 16];
+        hex::decode_to_slice(cid_str, &mut cid)?;
 
         Ok(EmmcStorage {
             info: EmmcInfo {
@@ -204,7 +178,8 @@ impl EmmcStorage {
                 gp4_size,
                 user_size,
                 cid,
-                fwver: 0,
+                fwver: [0; 8],
+                reserved: [0; 8],
             },
         })
     }

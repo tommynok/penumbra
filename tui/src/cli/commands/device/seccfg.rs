@@ -1,18 +1,16 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
-use std::path::PathBuf;
 
 use anyhow::Result;
-use async_trait::async_trait;
 use clap::{Args, ValueEnum};
 use log::info;
 use penumbra::Device;
 use penumbra::core::seccfg::LockFlag;
 
-use crate::cli::MtkCommand;
-use crate::cli::common::{CONN_DA, CommandMetadata, DaArgs};
+use crate::cli::DeviceCommand;
+use crate::cli::common::{CONN_DA, CommandMetadata};
 use crate::cli::state::PersistedDeviceState;
 
 #[derive(Debug, ValueEnum, Clone)]
@@ -24,8 +22,6 @@ pub enum SeccfgAction {
 #[derive(Args, Debug)]
 pub struct SeccfgArgs {
     pub action: SeccfgAction,
-    #[command(flatten)]
-    pub da: DaArgs,
 }
 
 impl CommandMetadata for SeccfgArgs {
@@ -40,10 +36,9 @@ impl CommandMetadata for SeccfgArgs {
     }
 }
 
-#[async_trait]
-impl MtkCommand for SeccfgArgs {
-    async fn run(&self, dev: &mut Device, state: &mut PersistedDeviceState) -> Result<()> {
-        dev.enter_da_mode().await?;
+impl DeviceCommand for SeccfgArgs {
+    fn run(&self, dev: &mut Device, state: &mut PersistedDeviceState) -> Result<()> {
+        dev.enter_da_mode()?;
 
         state.connection_type = CONN_DA;
         state.flash_mode = 1;
@@ -51,7 +46,7 @@ impl MtkCommand for SeccfgArgs {
         match self.action {
             SeccfgAction::Unlock => {
                 info!("Unlocking seccfg...");
-                match dev.set_seccfg_lock_state(LockFlag::Unlock).await {
+                match dev.set_seccfg_lock_state(LockFlag::Unlock) {
                     Some(_) => (),
                     None => {
                         info!("Failed to unlock seccfg or already unlocked.");
@@ -62,7 +57,7 @@ impl MtkCommand for SeccfgArgs {
             }
             SeccfgAction::Lock => {
                 info!("Locking seccfg partition...");
-                match dev.set_seccfg_lock_state(LockFlag::Lock).await {
+                match dev.set_seccfg_lock_state(LockFlag::Lock) {
                     Some(_) => (),
                     None => {
                         info!("Failed to lock seccfg or already locked.");
@@ -74,13 +69,5 @@ impl MtkCommand for SeccfgArgs {
         }
 
         Ok(())
-    }
-
-    fn da(&self) -> Option<&PathBuf> {
-        Some(&self.da.da_file)
-    }
-
-    fn pl(&self) -> Option<&PathBuf> {
-        self.da.preloader_file.as_ref()
     }
 }

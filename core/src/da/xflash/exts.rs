@@ -1,28 +1,49 @@
 /*
-    SPDX-License-Identifier: GPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
-
-    Derived from:
-    https://github.com/bkerler/mtkclient/blob/main/mtkclient/Library/DA/xflash/extension/xflash.py
-    Original SPDX-License-Identifier: GPL-3.0-or-later
-    Original SPDX-FileCopyrightText: 2018–2024 bkerler
-
-    This file remains under the GPL-3.0-or-later license.
-    However, as part of a larger project licensed under the AGPL-3.0-or-later,
-    the combined work is subject to the networking terms of the AGPL-3.0-or-later,
-    as for term 13 of the GPL-3.0-or-later license.
+    SPDX-License-Identifier: AGPL-3.0-or-later
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
-use log::{debug, info};
+use std::io::{Cursor, Read, Write};
 
-use crate::da::DAProtocol;
+use log::{debug, info};
+use wincode::{SchemaRead, SchemaWrite};
+
+use crate::core::storage::{RPMB_FRAME_DATA_SZ, RpmbRegion, Storage};
+use crate::da::DownloadProtocol;
 use crate::da::xflash::{Cmd, XFlash};
 use crate::error::{Error, Result};
-use crate::extract_ptr;
-use crate::utilities::patching::{HEX_NOT_FOUND, find_pattern, patch_ptr};
+use crate::le_u32;
+use crate::utilities::analysis::{Arch, create_analyzer};
+use crate::utilities::patching::{bytes_to_hex, patch_pattern_str};
 
 const DA_EXT: &[u8] = include_bytes!("../../../payloads/da_x.bin");
+// Won't go faster, and bigger packets makes the device hang
+const RPMB_WRITE_PKT_LEN: usize = 32 * 1024;
 
-pub async fn boot_extensions(xflash: &mut XFlash) -> Result<bool> {
+#[repr(C)]
+#[derive(SchemaRead, SchemaWrite)]
+struct DACtx {
+    sej_base: u32,
+    tzcc_base: u32,
+    da2_base: u32,
+    da2_size: u32,
+    write_pkt_len: u32,
+    read_pkt_len: u32,
+    storage_type: u32,
+    usb_log: u32,
+}
+
+impl DACtx {
+    pub fn to_bytes(&self) -> [u8; 32] {
+        let mut out = [0u8; 32];
+
+        // Should never fail
+        wincode::serialize_into(&mut out[..], self).unwrap();
+
+        out
+    }
+}
+
+pub fn boot_extensions(xflash: &mut XFlash) -> Result<bool> {
     debug!("Trying booting XFlash extensions...");
 
     let ext_data = match prepare_extensions(xflash) {
@@ -36,8 +57,8 @@ pub async fn boot_extensions(xflash: &mut XFlash) -> Result<bool> {
     let ext_addr = 0x68000000;
     let ext_size = ext_data.len() as u32;
 
-    info!("Uploading DA extensions to {:08X} ({} bytes)", ext_addr, ext_size);
-    match xflash.boot_to(ext_addr, &ext_data).await {
+    info!("Uploading DA extensions to 0x{:08X} (0x{:X} bytes)", ext_addr, ext_size);
+    match xflash.boot_to(ext_addr, &ext_data) {
         Ok(_) => {}
         // If DA extensions fail to upload, we just return false, not a fatal error
         Err(_) => {
@@ -47,137 +68,153 @@ pub async fn boot_extensions(xflash: &mut XFlash) -> Result<bool> {
     }
     info!("DA extensions uploaded");
 
-    let ack = xflash.devctrl(Cmd::ExtAck, None).await?;
-
-    // Ack must be 0xA1A2A3A4
-    if ack.len() < 4 || ack[0..4] != [0xA4, 0xA3, 0xA2, 0xA1] {
-        return Err(Error::proto("DA extensions failed to start (invalid ACK)"));
-    } else {
-        info!("Received ack: {:02X?}", &ack[0..4]);
+    let ack = xflash.devctrl(Cmd::ExtAck, None)?;
+    if ack.len() < 4 || le_u32!(ack, 0) != 0 {
+        info!("DA extensions ACK failed, continuing without extensions");
+        return Ok(false);
     }
+
+    let sej_base = xflash.chip().sej_base();
+    let tzcc_base = xflash.chip().tzcc_base();
+    let da2_base = xflash.da.get_da2().map(|da2| da2.addr).unwrap_or(0);
+    let da2_size = xflash.da.get_da2().map(|da2| da2.data.len() as u32).unwrap_or(0);
+    let storage_type = xflash.get_storage_type() as u32;
+    let read_pkt_len = xflash.read_packet_length.unwrap_or(0x100) as u32;
+    let write_pkt_len = xflash.write_packet_length.unwrap_or(0x100) as u32;
+    let usb_log = xflash.usb_log_channel as u32;
+
+    let ctx = DACtx {
+        sej_base,
+        tzcc_base,
+        da2_base,
+        da2_size,
+        write_pkt_len,
+        read_pkt_len,
+        storage_type,
+        usb_log,
+    };
+
+    xflash.devctrl(Cmd::ExtSetupDaCtx, Some(&[&ctx.to_bytes()]))?;
 
     Ok(true)
 }
 
 fn prepare_extensions(xflash: &XFlash) -> Option<Vec<u8>> {
     let da2 = &xflash.da.get_da2()?.data;
-    let da2address = xflash.da.get_da2()?.addr;
+    let da2address = xflash.da.get_da2()?.addr as u64;
 
     let mut da_ext_data = DA_EXT.to_vec();
 
-    // This allows to register DA Extensions custom commands (0x0F000X)
-    let register_devctrl = find_pattern(da2, "38B505460C20", 0);
-    if register_devctrl == HEX_NOT_FOUND {
-        return None;
-    }
+    let analyzer = create_analyzer(da2.clone(), da2address, Arch::Thumb2);
 
-    let mmc_get_card = {
-        let pos = find_pattern(da2, "4B4FF43C72", 0);
-        if pos != HEX_NOT_FOUND {
-            pos.saturating_sub(1)
-        } else {
-            let pos = find_pattern(da2, "A3EB0013181A02EB0010", 0);
-            if pos != HEX_NOT_FOUND {
-                pos.saturating_sub(10)
-            } else {
-                return None;
-            }
-        }
-    };
+    let off = analyzer.find_function_from_string("allocation was %zd bytes long at ptr %p\n")?;
+    let free = analyzer.offset_to_va(off)? as u32;
 
-    let mut mmc_set_part_config = HEX_NOT_FOUND;
-    let mut search_offset = 0;
+    debug!("Found free at 0x{:08X}", free);
 
-    while search_offset < da2.len() {
-        let pos = find_pattern(da2, "C3690A4610B5", search_offset);
-        if pos == HEX_NOT_FOUND {
-            break;
-        }
+    // kernel main
+    let off = analyzer.find_string_xref("\n***10.dagent_register_commands.\n")?;
+    let off = analyzer.get_next_bl_from_off(off + 6)?; // Skip dprintf
+    let off = analyzer.get_bl_target(off)?;
+    let off = analyzer.va_to_offset(off)?;
+    // + 0x20 to account of the extloader just in case
+    let off = analyzer.get_next_bl_from_off(off)?;
+    let reg_devc = analyzer.get_bl_target(off)? as u32 | 1;
 
-        if pos + 22 <= da2.len() && da2[pos + 20] == 0xB3 && da2[pos + 21] == 0x21 {
-            mmc_set_part_config = pos;
-            break;
-        }
+    debug!("Found register_device_ctrl at 0x{:08X}", reg_devc);
 
-        search_offset = pos + 1;
-    }
+    let off = analyzer.va_to_offset(reg_devc as u64)?;
+    let off = analyzer.get_next_bl_from_off(off)?;
+    let malloc = analyzer.get_bl_target(off)? as u32 | 1;
 
-    if mmc_set_part_config == HEX_NOT_FOUND {
-        mmc_set_part_config = find_pattern(da2, "C36913F00103", 0);
-    }
+    debug!("Found malloc at 0x{:08X}", malloc);
 
-    let mut mmc_rpmb_send_command = find_pattern(da2, "F8B506469DF81850", 0);
-    if mmc_rpmb_send_command == HEX_NOT_FOUND {
-        mmc_rpmb_send_command = find_pattern(da2, "2DE9F0414FF6FD74", 0);
-    }
+    let off = analyzer.find_function_from_string("%s, mmc_set_part_config done!!\n")?;
+    let off = analyzer.get_next_bl_from_off(off)?; // Skip dprintf
 
-    let ufs_patterns =
-        [("20460BB0BDE8F08300BF", 10), ("20460DB0BDE8F083", 8), ("214602F002FB1BE600BF", 18)];
+    let off = analyzer.get_bl_target(off)?;
+    let mmc_get_card = off as u32 | 1;
 
-    let mut g_ufs_hba = 0;
+    debug!("Found mmc_get_card at 0x{:08X}", mmc_get_card);
 
-    for (pattern, offset) in ufs_patterns {
-        let pos = find_pattern(da2, pattern, 0);
-        if pos != HEX_NOT_FOUND && pos + offset + 4 <= da2.len() {
-            g_ufs_hba = extract_ptr!(u32, da2, pos + offset);
-            break;
-        }
-    }
+    let uart_base = xflash.chip().uart();
 
-    let has_ufs = g_ufs_hba != 0;
+    debug!("UART base address at 0x{:X}", uart_base);
 
-    let ufs_tag_pos = if has_ufs { find_pattern(da2, "B52EB190F8", 0) } else { HEX_NOT_FOUND };
-
-    let ufs_queue_pos = if has_ufs { find_pattern(da2, "2DE9F8430127", 0) } else { HEX_NOT_FOUND };
-
-    // Actual patching starts here
-    let register_ptr = find_pattern(&da_ext_data, "11111111", 0);
-    let mmc_get_card_ptr = find_pattern(&da_ext_data, "22222222", 0);
-    let mmc_set_part_config_ptr = find_pattern(&da_ext_data, "33333333", 0);
-    let mmc_rpmb_send_command_ptr = find_pattern(&da_ext_data, "44444444", 0);
-    let ufshcd_queuecommand_ptr = find_pattern(&da_ext_data, "55555555", 0);
-    let ufshcd_get_free_tag_ptr = find_pattern(&da_ext_data, "66666666", 0);
-    let ptr_g_ufs_hba_ptr = find_pattern(&da_ext_data, "77777777", 0);
-    // let efuse_addr_ptr = find_pattern(&da_ext_data, "88888888", 0);
-
-    let patches = [
-        (register_ptr, register_devctrl),
-        (mmc_get_card_ptr, mmc_get_card),
-        (mmc_set_part_config_ptr, mmc_set_part_config),
-        (mmc_rpmb_send_command_ptr, mmc_rpmb_send_command),
-        (ufshcd_queuecommand_ptr, ufs_queue_pos),
-        (ufshcd_get_free_tag_ptr, ufs_tag_pos),
-        (ptr_g_ufs_hba_ptr, g_ufs_hba as usize),
-    ];
-
-    for (offset, value) in patches {
-        if offset != HEX_NOT_FOUND && value != HEX_NOT_FOUND {
-            patch_ptr(&mut da_ext_data, offset, value as u32, da2address, true);
-        }
-    }
+    patch_pattern_str(&mut da_ext_data, "11111111", &bytes_to_hex(&reg_devc.to_le_bytes()));
+    patch_pattern_str(&mut da_ext_data, "22222222", &bytes_to_hex(&malloc.to_le_bytes()));
+    patch_pattern_str(&mut da_ext_data, "33333333", &bytes_to_hex(&free.to_le_bytes()));
+    patch_pattern_str(&mut da_ext_data, "44444444", &bytes_to_hex(&mmc_get_card.to_le_bytes()));
+    patch_pattern_str(&mut da_ext_data, "00200011", &bytes_to_hex(&uart_base.to_le_bytes()))?;
 
     Some(da_ext_data)
 }
 
-pub async fn read32_ext(xflash: &mut XFlash, addr: u32) -> Result<u32> {
-    xflash.devctrl(Cmd::ExtReadRegister, Some(&[&addr.to_le_bytes()])).await?;
+pub fn read32_ext(xflash: &mut XFlash, addr: u32) -> Result<u32> {
+    xflash.devctrl(Cmd::ExtReadRegister, Some(&[&addr.to_le_bytes()]))?;
 
-    let payload = xflash.read_data().await?;
+    let payload = xflash.read_data()?;
     status_ok!(xflash);
 
-    Ok(u32::from_le_bytes(payload[0..4].try_into().unwrap()))
+    Ok(le_u32!(payload, 0))
 }
 
-pub async fn write32_ext(xflash: &mut XFlash, addr: u32, value: u32) -> Result<()> {
+pub fn write32_ext(xflash: &mut XFlash, addr: u32, value: u32) -> Result<()> {
     let addr_bytes = addr.to_le_bytes();
     let value_bytes = value.to_le_bytes();
 
-    xflash.devctrl(Cmd::ExtWriteRegister, Some(&[&addr_bytes, &value_bytes])).await?;
+    xflash.devctrl(Cmd::ExtWriteRegister, Some(&[&addr_bytes, &value_bytes]))?;
 
     Ok(())
 }
 
-pub async fn sej(
+pub fn peek<W, F>(
+    xflash: &mut XFlash,
+    addr: u32,
+    length: usize,
+    writer: W,
+    progress: F,
+) -> Result<()>
+where
+    W: Write + Send,
+    F: FnMut(usize, usize) + Send,
+{
+    let mut range = [0u8; 16];
+    range[0..8].copy_from_slice(&(addr as u64).to_le_bytes());
+    range[8..16].copy_from_slice(&(length as u64).to_le_bytes());
+
+    xflash.devctrl(Cmd::ExtReadMem, Some(&[&range]))?;
+    xflash.upload_data(length, writer, progress)?;
+
+    status_ok!(xflash);
+
+    Ok(())
+}
+
+pub fn poke<R, F>(
+    xflash: &mut XFlash,
+    addr: u32,
+    length: usize,
+    reader: R,
+    progress: F,
+) -> Result<()>
+where
+    R: Read + Send,
+    F: FnMut(usize, usize) + Send,
+{
+    let mut range = [0u8; 16];
+    range[0..8].copy_from_slice(&(addr as u64).to_le_bytes());
+    range[8..16].copy_from_slice(&(length as u64).to_le_bytes());
+
+    xflash.devctrl(Cmd::ExtWriteMem, Some(&[&range]))?;
+    xflash.download_data(length, reader, progress)?;
+
+    status_ok!(xflash);
+
+    Ok(())
+}
+
+pub fn sej(
     xflash: &mut XFlash,
     data: &[u8],
     encrypt: bool,
@@ -193,10 +230,118 @@ pub async fn sej(
     params[3] = if xor { 1 } else { 0 };
     params[4..8].copy_from_slice(&(data.len() as u32).to_le_bytes());
 
-    xflash.devctrl(Cmd::ExtSej, Some(&[&params, data])).await?;
+    xflash.devctrl(Cmd::ExtSej, Some(&[&params]))?;
 
-    let payload = xflash.read_data().await?;
+    let mut reader = Cursor::new(data);
+    let mut payload = vec![0u8; data.len()];
+    let mut writer = Cursor::new(&mut payload);
+
+    xflash.download_data(data.len(), &mut reader, |_, _| {})?;
+    xflash.upload_data(data.len(), &mut writer, |_, _| {})?;
+
     status_ok!(xflash);
 
     Ok(payload)
+}
+
+fn init_rpmb(xflash: &mut XFlash, region: RpmbRegion) -> Result<()> {
+    // Derive RPMB key (0 = RPMB)
+    xflash.devctrl(Cmd::ExtKeyDerive, Some(&[&0u32.to_le_bytes()]))?;
+    let rpmb_key = xflash.read_data()?;
+    status_ok!(xflash);
+
+    // If the RPMB is already initialized (even with another key), this will succeed
+    // without actually changing the key.
+    auth_rpmb(xflash, region, &rpmb_key)?;
+
+    Ok(())
+}
+
+pub fn read_rpmb<W, F>(
+    xflash: &mut XFlash,
+    region: RpmbRegion,
+    start_sector: u32,
+    sectors_count: u32,
+    writer: W,
+    progress: F,
+) -> Result<()>
+where
+    W: Write + Send,
+    F: FnMut(usize, usize) + Send,
+{
+    init_rpmb(xflash, region)?;
+
+    let storage = match xflash.get_storage() {
+        Some(s) => s,
+        None => {
+            return Err(Error::penumbra("Failed to get storage information for RPMB read"));
+        }
+    };
+
+    let rpmb_size = storage.get_rpmb_size();
+    let max_sectors = (rpmb_size / RPMB_FRAME_DATA_SZ as u64) as u32;
+    if start_sector.checked_add(sectors_count).is_none_or(|end| end > max_sectors) {
+        return Err(Error::penumbra("Requested RPMB read range is out of bounds"));
+    }
+
+    let mut sector_range = [0u8; 8];
+    sector_range[0..4].copy_from_slice(&start_sector.to_le_bytes());
+    sector_range[4..8].copy_from_slice(&sectors_count.to_le_bytes());
+
+    let region = (region as u32).to_le_bytes();
+    let data_len = sectors_count as usize * RPMB_FRAME_DATA_SZ;
+
+    xflash.devctrl(Cmd::ExtRpmbRead, Some(&[&region, &sector_range]))?;
+    xflash.upload_data(data_len, writer, progress)?;
+    status_ok!(xflash);
+
+    Ok(())
+}
+
+pub fn write_rpmb<R, F>(
+    xflash: &mut XFlash,
+    region: RpmbRegion,
+    start_sector: u32,
+    sectors_count: u32,
+    reader: R,
+    progress: F,
+) -> Result<()>
+where
+    R: Read + Send,
+    F: FnMut(usize, usize) + Send,
+{
+    init_rpmb(xflash, region)?;
+
+    let storage = match xflash.get_storage() {
+        Some(s) => s,
+        None => {
+            return Err(Error::penumbra("Failed to get storage information for RPMB write"));
+        }
+    };
+
+    let rpmb_size = storage.get_rpmb_size();
+    let max_sectors = (rpmb_size / RPMB_FRAME_DATA_SZ as u64) as u32;
+    if start_sector.checked_add(sectors_count).is_none_or(|end| end > max_sectors) {
+        return Err(Error::penumbra("Requested RPMB write range is out of bounds"));
+    }
+
+    let mut sector_range = [0u8; 8];
+    sector_range[0..4].copy_from_slice(&start_sector.to_le_bytes());
+    sector_range[4..8].copy_from_slice(&sectors_count.to_le_bytes());
+
+    let region = (region as u32).to_le_bytes();
+    let data_len = sectors_count as usize * RPMB_FRAME_DATA_SZ;
+
+    xflash.devctrl(Cmd::ExtRpmbWrite, Some(&[&region, &sector_range]))?;
+    xflash.download_data_with(data_len, RPMB_WRITE_PKT_LEN, reader, progress)?;
+    status_ok!(xflash);
+
+    Ok(())
+}
+
+pub fn auth_rpmb(xflash: &mut XFlash, region: RpmbRegion, key: &[u8]) -> Result<()> {
+    xflash.devctrl(Cmd::ExtRpmbInit, Some(&[&(region as u32).to_le_bytes(), key]))?;
+    status_ok!(xflash);
+
+    Ok(())
 }

@@ -1,6 +1,6 @@
 /*
     SPDX-License-Identifier: GPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 
     Derived from:
     https://github.com/bkerler/mtkclient/blob/main/mtkclient/Library/Hardware/hwcrypto_sej.py
@@ -123,12 +123,12 @@ impl<'a> SEJCrypto<'a> {
 
     async fn wreg(&mut self, reg: SejReg, val: u32) {
         let addr = self.reg_addr(reg);
-        self.config.write32(addr, val).await;
+        self.config.write32(addr, val);
     }
 
     async fn rreg(&mut self, reg: SejReg) -> u32 {
         let addr = self.reg_addr(reg);
-        self.config.read32(addr).await
+        self.config.read32(addr)
     }
 
     // Note: This modifies the data directly, it does not return a new Vec

@@ -1,13 +1,12 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
 use std::collections::BTreeMap;
+use std::fmt::Display;
 
 use xmlcmd_derive::XmlCommand;
 
-/// MAGIC value for protocol communication
-pub const MAGIC: u32 = 0xFEEEEEEF;
 /// Each header contains this, to identify the DataType.
 /// V6 doesn't seem to use anything other than this.
 pub const DT_PROTOCOL_FLOW: u32 = 0x1;
@@ -48,7 +47,7 @@ pub enum XmlCmdLifetime {
 
 /// Each XML command should implement this trait, by
 /// using the `XmlCommand` derive macro.
-pub trait XmlCommand {
+pub trait XmlCommand: Display {
     fn cmd_name(&self) -> &'static str;
     fn args(&self) -> Vec<(Option<&'static str>, &'static str, String)>;
     fn version(&self) -> &'static str;

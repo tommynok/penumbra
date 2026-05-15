@@ -1,6 +1,6 @@
 /*
     SPDX-License-Identifier: GPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 
     Derived from:
     https://github.com/bkerler/mtkclient/blob/main/mtkclient/Library/DA/xflash/xflash_param.py
@@ -54,8 +54,11 @@ pub enum Cmd {
     SetRemoteSecPolicy = 0x02000B,
     SetAllInOneSig = 0x02000C,
     SetRscInfo = 0x02000D,
+    SetRebootMode = 0x02000E,
+    SetCertFile = 0x02000F,
     SetUpdateFw = 0x020010,
     SetUfsConfig = 0x020011,
+    SetDynamicPartMap = 0x020012,
 
     GetEmmcInfo = 0x040001,
     GetNandInfo = 0x040002,
@@ -86,6 +89,7 @@ pub enum Cmd {
     DisableEmmcHwresetPin = 0x080004,
     CcOptionalDownloadAct = 0x080005,
     DaStorLifeCycleCheck = 0x080007,
+    DisableSparseErase = 0x080008,
 
     UnknownCtrlCode = 0x0E0000,
     CtrlStorageTest = 0x0E0001,
@@ -94,18 +98,16 @@ pub enum Cmd {
 
     // Extensions
     ExtAck = 0x0F0000,
-    ExtReadMem = 0x0F0001,
-    ExtReadRegister = 0x0F0002,
+    ExtSetupDaCtx = 0x0F0001,
+    ExtReadMem = 0x0F0002,
     ExtWriteMem = 0x0F0003,
-    ExtWriteRegister = 0x0F0004,
-    ExtSetStorage = 0x0F0005,
-    ExtSetRpmbKey = 0x0F0006,
-    ExtProgRpmbKey = 0x0F0007,
-    ExtInitRpmb = 0x0F0008,
-    ExtReadRpmb = 0x0F0009,
-    ExtWriteRpmb = 0x0F000A,
-    ExtSej = 0x0F000B,
-    ExtSetupDaCtx = 0x0F000C,
+    ExtReadRegister = 0x0F0004,
+    ExtWriteRegister = 0x0F0005,
+    ExtKeyDerive = 0x0F0006,
+    ExtSej = 0x0F0007,
+    ExtRpmbInit = 0x0F0008,
+    ExtRpmbRead = 0x0F0009,
+    ExtRpmbWrite = 0x0F000A,
 }
 
 #[repr(u32)]

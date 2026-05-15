@@ -1,16 +1,23 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
 use log::debug;
+use wincode::{Deserialize, SchemaRead, SchemaWrite};
 
 use crate::error::{Error, Result};
+use crate::utilities::hash::HashType;
+use crate::{le_u16, le_u32};
+
+const SECRO_PATTERN: &[u8] = b"AND_SECRO_v";
+const DA_V6_SIG: &[u8] = b"MTK_DA_v6";
+const DA_MAGIC: &[u8] = b"MTK_DOWNLOAD_AGENT";
 
 /// Protocol used by the DA
 /// - Legacy: Old DA, used in old devices
 /// - V5 (XFlash): Used mainly in early Dimensity devices and most Helio devices
 /// - V6 (XML): Newest protocol, used in most recent Dimensity and Helio devices
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DAType {
     Legacy,
     V5,
@@ -22,9 +29,10 @@ pub enum DAType {
 /// - Region 0: File Info (On XML Region 0 is the same as Region 1)
 /// - Region 1: First stage DA (DA1)
 /// - Region 2: Second stage DA (DA2)
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, SchemaRead, SchemaWrite)]
 pub struct DAEntryRegion {
     /// Raw data of the region, including signature if any
+    #[wincode(skip)]
     pub data: Vec<u8>,
     /// Offset within the file itself, where the region starts
     pub offset: u32,
@@ -77,20 +85,17 @@ impl DAFile {
             && &raw_data[legacy_test_pos..legacy_test_pos + 2] == b"\xDA\xDA"
         {
             DAType::Legacy
-        } else if hdr.windows(9).any(|w| w == b"MTK_DA_v6") {
+        } else if hdr.windows(9).any(|w| w == DA_V6_SIG) {
             DAType::V6
         } else {
             DAType::V5
         };
 
-        if da_type != DAType::Legacy && !hdr.windows(0x12).any(|w| w == b"MTK_DOWNLOAD_AGENT") {
+        if da_type != DAType::Legacy && !hdr.starts_with(DA_MAGIC) {
             return Err(Error::penumbra("Invalid DA file: Missing MTK_DOWNLOAD_AGENT signature"));
         }
 
-        let _da_id = String::from_utf8_lossy(&hdr[0x20..0x60]).trim_end_matches('\0').to_string();
-        let _version = u32::from_le_bytes(hdr[0x60..0x64].try_into().unwrap());
-        let num_socs = u32::from_le_bytes(hdr[0x68..0x6C].try_into().unwrap());
-        let _magic_number = &hdr[0x64..0x68];
+        let num_socs = le_u32!(hdr, 0x68);
 
         let da_entry_size = match da_type {
             DAType::Legacy => 0xD8,
@@ -103,15 +108,15 @@ impl DAFile {
             let start = 0x6C + (i as usize * da_entry_size);
             let end = start + da_entry_size;
             let da_entry = &raw_data[start..end];
-            let mut inner_da_type = da_type.clone();
+            let mut inner_da_type = da_type;
 
             // For each DA, we parse its header entry
-            let magic = u16::from_le_bytes(da_entry[0x00..0x02].try_into().unwrap());
-            let hw_code = u16::from_le_bytes(da_entry[0x02..0x04].try_into().unwrap());
-            let hw_sub_code = u16::from_le_bytes(da_entry[0x04..0x06].try_into().unwrap());
-            let _hw_version = u16::from_le_bytes(da_entry[0x06..0x08].try_into().unwrap());
+            let magic = le_u16!(da_entry, 0x00);
+            let hw_code = le_u16!(da_entry, 0x02);
+            let hw_sub_code = le_u16!(da_entry, 0x04);
+            let _hw_version = le_u16!(da_entry, 0x06);
             let mut regions: Vec<DAEntryRegion> = Vec::new();
-            let region_count = u16::from_le_bytes(da_entry[0x12..0x14].try_into().unwrap());
+            let region_count = le_u16!(da_entry, 0x12);
             // Structure of the DA header entry
             // 0x00	magic	u16
             // 0x02	hw_code	u16
@@ -124,7 +129,7 @@ impl DAFile {
             // 0x10	entry_region_index	u16
             // 0x12	entry_region_count	u16
             // 0x14	region table starts
-            let mut current_region_offset = 0x14; // Starting from 0x14 to skip the data we already parsed
+            let mut curr_off = 0x14; // Starting from 0x14 to skip the data we already parsed
             for _ in 0..region_count {
                 // Each region entry is 20 bytes
                 // 0x00	offset (m_buf)	u32
@@ -132,35 +137,23 @@ impl DAFile {
                 // 0x08	addr (m_addr)	u32
                 // 0x0C	m_region_offset (m_len - m_sig_len)	u32
                 // 0x10	sig_len (m_sig_len)	u32
-                let region_header_data =
-                    &da_entry[current_region_offset..current_region_offset + 20];
-                let offset = u32::from_le_bytes(region_header_data[0x00..0x04].try_into().unwrap());
-                let length = u32::from_le_bytes(region_header_data[0x04..0x08].try_into().unwrap());
-                let addr = u32::from_le_bytes(region_header_data[0x08..0x0C].try_into().unwrap());
-                let sig_len =
-                    u32::from_le_bytes(region_header_data[0x10..0x14].try_into().unwrap());
-                let region_data: Vec<u8> =
-                    raw_data[offset as usize..(offset + length) as usize].to_vec();
-                debug!(
-                    "Region: offset={:08X}, length={:08X}, addr={:08X}, sig_len={:08X}",
-                    offset, length, addr, sig_len
-                );
+
+                let mut region = DAEntryRegion::deserialize(&da_entry[curr_off..curr_off + 20])?;
+
+                let start = region.offset as usize;
+                let end = start + region.length as usize;
+
+                region.data = raw_data[start..end].to_vec();
+                //);
 
                 if inner_da_type != DAType::Legacy
-                    && region_data.windows(b"AND_SECRO_v".len()).any(|w| w == b"AND_SECRO_v")
+                    && region.data.windows(SECRO_PATTERN.len()).any(|w| w == SECRO_PATTERN)
                 {
                     inner_da_type = DAType::Legacy;
                 }
 
-                regions.push(DAEntryRegion {
-                    data: region_data,
-                    offset,
-                    length,
-                    addr,
-                    region_length: length - sig_len,
-                    sig_len,
-                });
-                current_region_offset += 20; // Move to the next region header
+                regions.push(region);
+                curr_off += 20; // Move to the next region header
             }
 
             das.push(DA { da_type: inner_da_type, regions, magic, hw_code, hw_sub_code });
@@ -264,6 +257,30 @@ impl DA {
                 None
             }
             _ => None,
+        }
+    }
+
+    pub fn get_hash_type(&self) -> HashType {
+        let Some(offset) = self.find_da_hash_offset() else {
+            return HashType::Unknown;
+        };
+
+        let data = &self.get_da1().unwrap().data[offset..];
+
+        // MD5 length = 16 bytes, SHA1 length = 20 bytes, SHA256 length = 32 bytes
+        // Since even the shortest hash is 16 bytes, we start scanning after that point
+        // and look for a delimiter (8 consecutive null bytes) to determine where the hash ends.
+        let hash_len = data[16..]
+            .windows(8)
+            .position(|w| w.iter().all(|&b| b == 0))
+            .map(|pos| pos + 16)
+            .unwrap_or(data.len());
+
+        match hash_len {
+            16 => HashType::Md5,
+            20 => HashType::Sha1,
+            32 => HashType::Sha256,
+            _ => HashType::Unknown,
         }
     }
 

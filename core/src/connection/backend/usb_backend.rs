@@ -1,25 +1,23 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
 
 use std::fmt;
+use std::io::{Read, Write};
 use std::time::Duration;
 
-use async_trait::async_trait;
 use log::debug;
 use nusb::descriptors::TransferType;
 use nusb::io::{EndpointRead, EndpointWrite};
 use nusb::transfer::{Bulk, ControlIn, ControlOut, ControlType, Direction, In, Out, Recipient};
-use nusb::{DeviceInfo, Interface};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use nusb::{Device, DeviceInfo, Interface, MaybeFuture};
 
 use crate::MTKPort;
 use crate::connection::ConnectionType;
-use crate::connection::port::KNOWN_PORTS;
+use crate::connection::port::{KNOWN_PORTS, MAX_TIMEOUT};
 use crate::error::{Error, Result};
 
-const MAX_TIMEOUT: Duration = Duration::from_secs(2);
 const BULK_IN_SZ: usize = 0x80000;
 const BULK_OUT_SZ: usize = 0x80000;
 
@@ -96,7 +94,7 @@ impl UsbMTKPort {
         Err(Error::io("No bulk endpoints found"))
     }
 
-    async fn setup_cdc(&self) -> Result<()> {
+    fn setup_cdc(&self) -> Result<()> {
         let iface = self.ctrl_interface.as_ref().ok_or(Error::io("Interface not open"))?;
 
         const CDC_INTERFACE_NUM: u16 = 0;
@@ -117,7 +115,7 @@ impl UsbMTKPort {
                 },
                 MAX_TIMEOUT,
             )
-            .await
+            .wait()
             .map_err(|e| Error::io(format!("CDC Set Line Coding failed: {}", e)))?;
 
         iface
@@ -132,57 +130,80 @@ impl UsbMTKPort {
                 },
                 MAX_TIMEOUT,
             )
-            .await
+            .wait()
             .map_err(|e| Error::io(format!("CDC Set Control Line State failed: {}", e)))?;
 
         debug!("CDC Setup complete");
         Ok(())
     }
+
+    /*
+     * Some devices don't have the bulk iface on 1, but on 0, so we gotta adapt!!
+     */
+    fn find_cdc_interface_numbers(device: &Device) -> Result<(u8, u8)> {
+        let settings: Vec<(u8, u8)> = device
+            .configurations()
+            .flat_map(|c| c.interfaces())
+            .flat_map(|i| {
+                i.alt_settings().map(|a| (a.class(), a.interface_number())).collect::<Vec<_>>()
+            })
+            .collect();
+
+        let ctrl_num = settings.iter().find(|(class, _)| *class == 2).map(|(_, n)| *n);
+        let bulk_num = settings.iter().find(|(class, _)| *class == 10).map(|(_, n)| *n);
+
+        match (ctrl_num, bulk_num) {
+            (Some(c), Some(b)) => Ok((c, b)),
+            (None, _) => Err(Error::io("Missing CDC control interface")),
+            (_, None) => Err(Error::io("Missing CDC bulk/data interface")),
+        }
+    }
 }
 
-#[async_trait]
 impl MTKPort for UsbMTKPort {
-    async fn open(&mut self) -> Result<()> {
+    fn open(&mut self) -> Result<()> {
         if self.is_open {
             return Ok(());
         }
 
-        let device = self.info.open().await?;
-        let ctrl_iface = device.detach_and_claim_interface(0).await?;
-        let iface = device.detach_and_claim_interface(1).await?;
+        let device = self.info.open().wait().map_err(|_| Error::io("Failed to open device"))?;
 
-        self.select_endpoints(&iface)?;
+        let (ctrl_num, bulk_num) = Self::find_cdc_interface_numbers(&device)?;
 
-        // Seem to be a windows bug
-        #[cfg(windows)]
-        let tr = 1;
+        self.ctrl_interface = Some(device.detach_and_claim_interface(ctrl_num).wait()?);
+        let bulk_iface = device.detach_and_claim_interface(bulk_num).wait()?;
 
-        #[cfg(not(windows))]
-        let tr = 8;
+        self.select_endpoints(&bulk_iface)?;
+        let tr = if cfg!(windows) { 1 } else { 8 };
 
-        let ep_in = iface.endpoint::<Bulk, In>(self.ep_in)?;
-        let rdr = ep_in.reader(BULK_IN_SZ).with_num_transfers(tr).with_read_timeout(MAX_TIMEOUT);
-        let ep_out = iface.endpoint::<Bulk, Out>(self.ep_out)?;
-        let wr = ep_out.writer(BULK_OUT_SZ).with_num_transfers(tr).with_write_timeout(MAX_TIMEOUT);
+        self.reader = Some(
+            bulk_iface
+                .endpoint::<Bulk, In>(self.ep_in)?
+                .reader(BULK_IN_SZ)
+                .with_num_transfers(tr)
+                .with_read_timeout(MAX_TIMEOUT),
+        );
 
-        self.reader = Some(rdr);
-        self.writer = Some(wr);
-        self.interface = Some(iface);
-        self.ctrl_interface = Some(ctrl_iface);
+        self.writer = Some(
+            bulk_iface
+                .endpoint::<Bulk, Out>(self.ep_out)?
+                .writer(BULK_OUT_SZ)
+                .with_num_transfers(tr)
+                .with_write_timeout(MAX_TIMEOUT),
+        );
 
-        // CDC setup is needed for preloader and DA modes on all platforms
-        if self.connection_type != ConnectionType::Brom
-            && let Err(e) = self.setup_cdc().await
-        {
-            debug!("CDC setup failed (may be ok): {:?}", e);
+        self.interface = Some(bulk_iface);
+
+        if self.connection_type != ConnectionType::Brom {
+            let _ = self.setup_cdc();
         }
 
+        log::info!("USB port opened: {}", self.get_port_name());
         self.is_open = true;
-
         Ok(())
     }
 
-    async fn close(&mut self) -> Result<()> {
+    fn close(&mut self) -> Result<()> {
         if !self.is_open {
             return Ok(());
         }
@@ -196,32 +217,35 @@ impl MTKPort for UsbMTKPort {
         Ok(())
     }
 
-    async fn read_exact(&mut self, buf: &mut [u8]) -> Result<usize> {
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<usize> {
         let reader = self.reader.as_mut().ok_or_else(|| Error::io("USB port is not open"))?;
 
-        reader.read_exact(buf).await?;
-        Ok(buf.len())
+        match reader.read_exact(buf) {
+            Ok(()) => Ok(buf.len()),
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => Err(Error::Timeout),
+            Err(e) => Err(Error::from(e)),
+        }
     }
 
-    async fn write_all(&mut self, buf: &[u8]) -> Result<()> {
+    fn write_all(&mut self, buf: &[u8]) -> Result<()> {
         let writer = self.writer.as_mut().ok_or_else(|| Error::io("USB port is not open"))?;
 
-        writer.write_all(buf).await?;
-        writer.flush().await?;
+        writer.write_all(buf)?;
+        writer.flush()?;
         Ok(())
     }
 
     /// USB doesn't need flushing
-    async fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> Result<()> {
         Ok(())
     }
 
-    async fn handshake(&mut self) -> Result<()> {
+    fn handshake(&mut self) -> Result<()> {
         let mut resp = [0u8; 1];
 
         loop {
-            self.write_all(&[0xA0]).await?;
-            self.read_exact(&mut resp).await?;
+            self.write_all(&[0xA0])?;
+            self.read_exact(&mut resp)?;
             let b = resp[0];
 
             if b == 0x5F {
@@ -237,8 +261,8 @@ impl MTKPort for UsbMTKPort {
         const SEQ: [u8; 3] = [0x0A, 0x50, 0x05];
 
         for &byte in &SEQ {
-            self.write_all(&[byte]).await?;
-            self.read_exact(&mut resp).await?;
+            self.write_all(&[byte])?;
+            self.read_exact(&mut resp)?;
 
             if resp[0] != (byte ^ 0xFF) {
                 return Err(Error::conn(format!(
@@ -265,8 +289,19 @@ impl MTKPort for UsbMTKPort {
         format!("USB {:04X}:{:04X}", self.info.vendor_id(), self.info.product_id())
     }
 
-    async fn find_device() -> Result<Option<Self>> {
-        let devices = nusb::list_devices().await?;
+    fn set_timeout(&mut self, timeout: Option<Duration>) -> Result<()> {
+        let new_timeout = timeout.unwrap_or(MAX_TIMEOUT);
+        let writer = self.writer.as_mut().ok_or_else(|| Error::io("USB port is not open"))?;
+        let reader = self.reader.as_mut().ok_or_else(|| Error::io("USB port is not open"))?;
+
+        reader.set_read_timeout(new_timeout);
+        writer.set_write_timeout(new_timeout);
+
+        Ok(())
+    }
+
+    fn find_device() -> Result<Option<Self>> {
+        let devices = nusb::list_devices().wait()?;
 
         for device in devices {
             if let Some((_, _, conn_type)) = KNOWN_PORTS
@@ -280,7 +315,7 @@ impl MTKPort for UsbMTKPort {
         Ok(None)
     }
 
-    async fn ctrl_out(
+    fn ctrl_out(
         &mut self,
         request_type: u8,
         request: u8,
@@ -310,13 +345,13 @@ impl MTKPort for UsbMTKPort {
                 ControlOut { control_type, recipient, request, value, index, data },
                 Duration::from_secs(1),
             )
-            .await
+            .wait()
             .map_err(|e| Error::io(format!("Control OUT transfer failed: {}", e)))?;
 
         Ok(())
     }
 
-    async fn ctrl_in(
+    fn ctrl_in(
         &mut self,
         request_type: u8,
         request: u8,
@@ -346,7 +381,7 @@ impl MTKPort for UsbMTKPort {
                 ControlIn { control_type, recipient, request, value, index, length: len as u16 },
                 Duration::from_secs(1),
             )
-            .await
+            .wait()
             .map_err(|e| Error::io(format!("Control IN transfer failed: {}", e)))?;
 
         Ok(buf)

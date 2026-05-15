@@ -1,12 +1,43 @@
+/*
+    SPDX-License-Identifier: AGPL-3.0-or-later
+    SPDX-FileCopyrightText: 2025-2026 Shomy
+*/
 pub mod emmc;
 pub mod gpt;
 pub mod ufs;
 
 pub use emmc::EmmcPartition;
+use emmc::EmmcStorage;
+use enum_dispatch::enum_dispatch;
 pub use gpt::Gpt;
 pub use ufs::UfsPartition;
+use ufs::UfsStorage;
+
+pub const RPMB_FRAME_DATA_SZ: usize = 0x100;
 
 #[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RpmbRegion {
+    R1 = 0,
+    R2 = 1,
+    R3 = 2,
+    R4 = 3,
+}
+
+impl TryFrom<u8> for RpmbRegion {
+    type Error = &'static str;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(RpmbRegion::R1),
+            1 => Ok(RpmbRegion::R2),
+            2 => Ok(RpmbRegion::R3),
+            3 => Ok(RpmbRegion::R4),
+            _ => Err("Invalid RPMB region"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageType {
     Unknown = 0,
@@ -53,8 +84,15 @@ impl PartitionKind {
     }
 }
 
-#[async_trait::async_trait]
-pub trait Storage: Send + Sync {
+#[enum_dispatch(Storage)]
+#[derive(Clone)]
+pub enum StorageKind {
+    Emmc(EmmcStorage),
+    Ufs(UfsStorage),
+}
+
+#[enum_dispatch]
+pub trait Storage {
     fn kind(&self) -> StorageType;
     fn block_size(&self) -> u32;
     fn total_size(&self) -> u64;
@@ -66,6 +104,7 @@ pub trait Storage: Send + Sync {
     fn get_pl1_size(&self) -> u64;
     fn get_pl2_size(&self) -> u64;
     fn get_user_size(&self) -> u64;
+    fn get_rpmb_size(&self) -> u64;
 }
 
 pub fn is_pl_part(name: &str) -> bool {

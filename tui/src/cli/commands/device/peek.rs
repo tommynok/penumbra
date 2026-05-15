@@ -1,27 +1,24 @@
 /*
     SPDX-License-Identifier: AGPL-3.0-or-later
-    SPDX-FileCopyrightText: 2025 Shomy
+    SPDX-FileCopyrightText: 2025-2026 Shomy
 */
+use std::fs::File;
+use std::io::BufWriter;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use async_trait::async_trait;
 use clap::Args;
 use clap_num::maybe_hex;
 use log::info;
 use penumbra::Device;
-use tokio::fs::File;
-use tokio::io::BufWriter;
 
-use crate::cli::MtkCommand;
-use crate::cli::common::{CONN_DA, CommandMetadata, DaArgs};
+use crate::cli::DeviceCommand;
+use crate::cli::common::{CONN_DA, CommandMetadata};
 use crate::cli::helpers::AntumbraProgress;
 use crate::cli::state::PersistedDeviceState;
 
 #[derive(Args, Debug)]
 pub struct PeekArgs {
-    #[command(flatten)]
-    pub da: DaArgs,
     /// The address to read from.
     #[clap(value_parser=maybe_hex::<u32>)]
     pub address: u32,
@@ -42,39 +39,29 @@ impl CommandMetadata for PeekArgs {
     }
 }
 
-#[async_trait]
-impl MtkCommand for PeekArgs {
-    async fn run(&self, dev: &mut Device, state: &mut PersistedDeviceState) -> Result<()> {
-        dev.enter_da_mode().await?;
+impl DeviceCommand for PeekArgs {
+    fn run(&self, dev: &mut Device, state: &mut PersistedDeviceState) -> Result<()> {
+        dev.enter_da_mode()?;
 
         state.connection_type = CONN_DA;
         state.flash_mode = 1;
 
-        let file = File::create(&self.output_file).await?;
+        let file = File::create(&self.output_file)?;
         let mut writer = BufWriter::new(file);
 
         let pb = AntumbraProgress::new(self.length as u64);
 
-        let mut progress_callback = {
-            let pb = &pb;
-            move |read: usize, total: usize| {
-                pb.update(read as u64, "Reading memory...");
-
-                if read >= total {
-                    pb.finish("Memory readback completed!");
-                }
-            }
-        };
+        let mut progress_callback = pb.get_callback("Peeking...", "Peek complete!");
 
         info!(
             "Reading memory from address 0x{:08X}, length 0x{:X} bytes...",
             self.address, self.length
         );
 
-        match dev.peek(self.address, self.length, &mut writer, &mut progress_callback).await {
+        match dev.peek(self.address, self.length, &mut writer, &mut progress_callback) {
             Ok(_) => {}
             Err(e) => {
-                pb.abandon("Format failed!");
+                pb.abandon("Read failed!");
                 return Err(e)?;
             }
         }
@@ -82,13 +69,5 @@ impl MtkCommand for PeekArgs {
         info!("Memory readback completed, saved to {:?}", self.output_file);
 
         Ok(())
-    }
-
-    fn da(&self) -> Option<&PathBuf> {
-        Some(&self.da.da_file)
-    }
-
-    fn pl(&self) -> Option<&PathBuf> {
-        self.da.preloader_file.as_ref()
     }
 }
