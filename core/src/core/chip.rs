@@ -317,7 +317,7 @@ pub const MT6897: ChipInfo = ChipBuilder::new("MT6897/Dimensity 8300", 0x1203)
     .with_sej_base(0x1040E000)
     .with_tzcc_base(0x10403000)
     .with_wdt(0x1C007000)
-    .with_uart(0x11002000)
+    .with_uart(0x11001000)
     .build();
 
 // Emerald
